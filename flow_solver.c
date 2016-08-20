@@ -206,21 +206,21 @@ const int DIR_DELTA[4][2] = {
 // Look-up table mapping characters in puzzle definitions to ANSI
 // colors.
 const color_lookup color_dict[MAX_COLORS] = {
-  { 'R', '.', 101 }, // red
+  { 'R', 'o', 101 }, // red
   { 'B', '+', 104 }, // blue
-  { 'Y', '-', 103 }, // yellow
-  { 'G', '*', 42 }, // green
-  { 'O', '^', 43 }, // orange
-  { 'C', '=', 106 }, // cyan
-  { 'M', '~', 105 }, // magenta
-  { 'm', ',', 41 }, // maroon
-  { 'P', '%', 45 }, // purple
-  { 'A', '&', 100 }, // gray
-  { 'W', '.', 107 }, // white
-  { 'g', ',', 102 }, // bright green
-  { 'w',  '\'', 47 }, // beige
-  { 'b',  '`', 44 }, // dark blue
-  { 'c',  '"', 46 }, // dark cyan
+  { 'Y', '&', 103 }, // yellow
+  { 'G', '*',  42 }, // green
+  { 'O', 'x',  43 }, // orange
+  { 'C', '%', 106 }, // cyan
+  { 'M', '?', 105 }, // magenta
+  { 'm', 'v',  41 }, // maroon
+  { 'P', '^',  45 }, // purple
+  { 'A', '=', 100 }, // gray
+  { 'W', '~', 107 }, // white
+  { 'g', '.', 102 }, // bright green
+  { 'w', '-', 47 }, // beige
+  { 'b', '"', 44 }, // dark blue
+  { 'c', ',', 46 }, // dark cyan
 };
 
 // Global options struct gets setup during main
@@ -1360,7 +1360,7 @@ void game_animate_solution(const game_info_t* info,
   
   game_print(info, &node->state);
 
-  delay_seconds(0.025);
+  delay_seconds(0.1);
   
 }
 
@@ -1475,13 +1475,14 @@ void game_search(const game_info_t* info,
     
     assert(solution_node);
 
-    printf("initial heuristic=%g, cost to come=%g, cost to go=%g",
+    printf("initial heuristic=%g, cost to come=%g, cost to go=%g\n",
            root->cost_to_go,
            solution_node->cost_to_come,
            solution_node->cost_to_go);
 
     if (g_options.animate_solution) {
-      fflush(stdout);
+      printf("\n");
+      game_print(info, init_state);
       delay_seconds(1.0);
       game_animate_solution(info, solution_node);
     } else {
