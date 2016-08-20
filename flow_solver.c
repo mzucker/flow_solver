@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <locale.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -1380,10 +1381,10 @@ void game_search(const game_info_t* info,
   tree_node_t* root = node_create(&storage, NULL, info, init_state);
   node_update_costs(info, root, 0);
 
-  printf("will search up to %zu nodes (%g MB)\n",
+  printf("will search up to %'zu nodes (%'g MB)\n",
          max_nodes, max_nodes*(double)sizeof(tree_node_t)/MEGABYTE);
   
-  printf("heuristic at start is %g\n\n",
+  printf("heuristic at start is %'g\n\n",
          root->cost_to_go);
 
   game_print(info, init_state);
@@ -1483,7 +1484,7 @@ void game_search(const game_info_t* info,
 
   double storage_mb = (storage.count * (double)sizeof(tree_node_t) / MEGABYTE);
 
-  printf("search %s after %zu nodes (%f MB)\n",
+  printf("search %s after %'zu nodes (%'g MB)\n",
          result_str,
          storage.count, storage_mb);
 
@@ -1491,8 +1492,7 @@ void game_search(const game_info_t* info,
     
     assert(solution_node);
 
-    printf("initial heuristic=%g, final cost to come=%g, cost to go=%g\n",
-           root->cost_to_go,
+    printf("final cost to come=%'g, cost to go=%'g\n",
            solution_node->cost_to_come,
            solution_node->cost_to_go);
 
@@ -1518,7 +1518,7 @@ void usage(FILE* fp, int exitcode) {
           "  -r, --noregions         Disable freespace region analysis\n"
           "  -c, --constrained       Select next move by most constrained color\n"
           "  -b, --bfs               Run breadth-first search\n"
-          "  -m, --max-storage NUM   Restrict storage to NUM MB (default %g)\n"
+          "  -m, --max-storage NUM   Restrict storage to NUM MB (default %'g)\n"
           "  -h, --help              See this help text\n\n",
           g_options.max_storage_mb);
 
@@ -1621,6 +1621,8 @@ int parse_options(int argc, char** argv) {
 
 int main(int argc, char** argv) {
 
+  setlocale(LC_NUMERIC, "");
+    
   g_options.animate_solution = 1;
   g_options.color_display = terminal_has_color();
   g_options.prevent_self_touching = 1;
