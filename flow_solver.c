@@ -78,8 +78,9 @@ typedef uint8_t pos_t;
 
 // Match color characters to ANSI color codes
 typedef struct color_lookup_struct {
-  char c;    // Color character
-  int  code; // ANSI code
+  char input_char;   // Color character
+  char display_char; // Punctuation a la nethack
+  int  ansi_code;    // ANSI color code
 } color_lookup;
 
 // Options for this program
@@ -191,7 +192,6 @@ const tree_node_t* (*queue_peek)(const queue_t*) = 0;
 
 const char* BLOCK_CHAR = "#";
 
-
 // For visualizing cardinal directions ordered by the enum above.
 const char DIR_CHARS[4] = "<>^v";
 
@@ -206,21 +206,21 @@ const int DIR_DELTA[4][2] = {
 // Look-up table mapping characters in puzzle definitions to ANSI
 // colors.
 const color_lookup color_dict[MAX_COLORS] = {
-  { 'R',  101 }, // red
-  { 'B',  104 }, // blue
-  { 'Y',  103 }, // yellow
-  { 'G',  42 }, // green
-  { 'O',  43 }, // orange
-  { 'C',  106 }, // cyan
-  { 'M',  105 }, // magenta
-  { 'm',  41 }, // maroon
-  { 'P',  45 }, // purple
-  { 'A',  100 }, // gray
-  { 'W',  107 }, // white
-  { 'g',  102 }, // bright green
-  { 'w',  47 }, // beige
-  { 'b',  44 }, // dark blue
-  { 'c',  46 }, // dark cyan
+  { 'R', '.', 101 }, // red
+  { 'B', '+', 104 }, // blue
+  { 'Y', '-', 103 }, // yellow
+  { 'G', '*', 42 }, // green
+  { 'O', '^', 43 }, // orange
+  { 'C', '=', 106 }, // cyan
+  { 'M', '~', 105 }, // magenta
+  { 'm', ',', 41 }, // maroon
+  { 'P', '%', 45 }, // purple
+  { 'A', '&', 100 }, // gray
+  { 'W', '.', 107 }, // white
+  { 'g', ',', 102 }, // bright green
+  { 'w',  '\'', 47 }, // beige
+  { 'b',  '`', 44 }, // dark blue
+  { 'c',  '"', 46 }, // dark cyan
 };
 
 // Global options struct gets setup during main
@@ -231,7 +231,7 @@ options_t g_options;
 
 int get_color_id(char c) {
   for (int i=0; i<MAX_COLORS; ++i) {
-    if (color_dict[i].c == c) {
+    if (color_dict[i].input_char == c) {
       return i;
     }
   }
@@ -268,7 +268,7 @@ int terminal_has_color() {
 const char* set_color_str(int id) {
   if (g_options.color_display) {
     static char buf[256];
-    snprintf(buf, 256, "\033[30;%dm", color_dict[id].code);
+    snprintf(buf, 256, "\033[30;%dm", color_dict[id].ansi_code);
     return buf; 
   } else {
     return "";
@@ -491,7 +491,7 @@ void game_print(const game_info_t* info,
       int color = cell_get_color(cell);
       int dir = cell_get_direction(cell);
       int id = info->color_ids[color];
-      char c = color_dict[id].c;
+      char c = color_dict[id].display_char;
       switch (type) {
       case TYPE_FREE:
         printf(" ");
