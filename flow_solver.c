@@ -4,7 +4,11 @@
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
+#include <math.h>
+
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 // ideas:
 //
@@ -17,19 +21,6 @@
 //
 //   - TODO: bidirectional search?
 //
-
-//////////////////////////////////////////////////////////////////////
-// Like assert, but does not go away with NDEBUG
-
-#define require(expr) _require(__FILE__, __LINE__, (expr), #expr)
-
-void _require(const char* file, int line, int expr, const char* str) {
-  if (!expr) {
-    fprintf(stderr, "%s:%d: error: %s\n",
-            file, line, str);
-    abort();
-  }
-}
 
 //////////////////////////////////////////////////////////////////////
 
@@ -99,7 +90,7 @@ typedef struct options_struct {
   int most_constrained_color;
   int check_freespace_regions;
   int search_astar_like;
-  size_t max_storage_mb;
+  double max_storage_mb;
 } options_t;
 
 // Static information about a puzzle layout -- anything that does not
@@ -252,6 +243,12 @@ int get_color_id(char c) {
 
 int terminal_has_color() {
 
+#ifdef _WIN32
+
+  return 0;
+
+#else
+  
   if (!isatty(STDOUT_FILENO)) {
     return 0;
   } 
@@ -260,6 +257,8 @@ int terminal_has_color() {
   if (!term) { return 0; }
   
   return strstr(term, "xterm") == term || strstr(term, "rxvt") == term;
+
+#endif
   
 }
 
@@ -302,7 +301,11 @@ const char* clear_screen() {
 // Create a delay
 
 void delay_seconds(double s) {
+#ifdef _WIN32
+  // TODO: find win32 equivalent of usleep?
+#else
   usleep((size_t)(s * 1e6));
+#endif
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1367,8 +1370,8 @@ void game_animate_solution(const game_info_t* info,
 void game_search(const game_info_t* info,
                  const game_state_t* init_state) {
 
-  size_t max_nodes = ( g_options.max_storage_mb * MEGABYTE /
-                       (sizeof(tree_node_t) + sizeof(tree_node_t*) ) );
+  size_t max_nodes = floor( g_options.max_storage_mb * MEGABYTE /
+                            sizeof(tree_node_t) );
 
   game_print(info, init_state);
   
@@ -1495,15 +1498,123 @@ void game_search(const game_info_t* info,
   
 }
 
+void usage(FILE* fp, int exitcode) {
+
+  fprintf(fp,
+          "usage: flow_solver [OPTIONS] BOARD.txt\n"
+          "\n"
+          "OPTIONS:\n"
+          "\n"
+          "  -A, --no-animation      Disable animating solution\n"
+#ifndef _WIN32          
+          "  -C, --color             Use ANSI color even if TERM not set or not a tty\n"
+#endif          
+          "  -s, --noself            Disable self-touch test\n"
+          "  -r, --noregions         Disable freespace region analysis\n"
+          "  -c, --constrained       Select next move by most constrained color\n"
+          "  -b, --bfs               Run breadth-first search\n"
+          "  -m, --max-storage NUM   Restrict storage to NUM MB (default %f)\n"
+          "  -h, --help              See this help text\n\n",
+          g_options.max_storage_mb);
+
+  exit(exitcode);
+  
+}
+
+//////////////////////////////////////////////////////////////////////
+// Check file exists
+
+int exists(const char* fn) {
+
+  FILE* fp = fopen(fn, "r");
+  
+  if (fp) {
+    fclose(fp);
+    return 1;
+  } else {
+    return 0;
+  }
+
+}
+
+//////////////////////////////////////////////////////////////////////
+// Parse command-line options
+
+int parse_options(int argc, char** argv) {
+
+  int input_arg = -1;
+
+  if (argc < 2) {
+    fprintf(stderr, "not enough args!\n\n");
+    usage(stderr, 1);
+  }
+  
+  for (int i=1; i<argc; ++i) {
+    
+    const char* opt = argv[i];
+    
+    if (!strcmp(opt, "-A") || !strcmp(opt, "--no-animation")) {
+      g_options.animate_solution = 0;
+#ifndef _WIN32      
+    } else if (!strcmp(opt, "-C") || !strcmp(opt, "--color")) {
+      g_options.color_display = 1;
+#endif
+    } else if (!strcmp(opt, "-s") || !strcmp(opt, "--noself")) {
+      g_options.prevent_self_touching = 0;
+    } else if (!strcmp(opt, "-r") || !strcmp(opt, "--noregions")) {
+      g_options.check_freespace_regions = 0; 
+    } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
+      g_options.most_constrained_color = 1; 
+    } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bfs")) {
+      g_options.search_astar_like = 0;
+    } else if (!strcmp(opt, "-m") || !strcmp(opt, "--max-storage")) {
+
+      if (i+1 == argc) {
+        fprintf(stderr, "-m, --max-storage needs argument\n");
+        usage(stderr, 1);
+      }
+      
+      opt = argv[++i];
+      
+      char* endptr;
+      g_options.max_storage_mb = strtod(opt, &endptr);
+      if (!endptr || *endptr || g_options.max_storage_mb <= 0) {
+        fprintf(stderr, "error parsing max storage %s on command line!\n\n", opt);
+        usage(stderr, 1);
+      }
+
+    } else if (!strcmp(opt, "-h") || !strcmp(opt, "--help")) {
+      usage(stdout, 0);
+    } else if (input_arg < 0 && exists(opt)) {
+      input_arg = i;
+    } else {
+      if (opt[0] == '-') {
+        fprintf(stderr, "unrecognized option: %s\n\n", opt);
+        usage(stderr, 1);
+      } else if (input_arg < 0) {
+        fprintf(stderr, "error opening %s\n", opt);
+        exit(1);
+      } else {
+        fprintf(stderr, "maximum one puzzle to read\n\n");
+        usage(stderr, 1);
+      }
+    }
+    
+  }
+
+  if (input_arg < 0) {
+    fprintf(stderr, "no input file!\n\n");
+    usage(stderr, 1);
+  }
+
+  return input_arg;
+
+}
+
 //////////////////////////////////////////////////////////////////////
 // Main function
 
 int main(int argc, char** argv) {
-
-  if (argc != 2) {
-    fprintf(stderr, "usage: %s BOARD.txt\n", argv[0]);
-    exit(1);
-  }
 
   g_options.animate_solution = 1;
   g_options.color_display = terminal_has_color();
@@ -1513,12 +1624,16 @@ int main(int argc, char** argv) {
   g_options.search_astar_like = 1;
   g_options.max_storage_mb = 512;
 
+  int input_arg = parse_options(argc, argv);
+  
+  const char* input_file = argv[input_arg];
+  
   queue_setup();
   
   game_info_t  info;
   game_state_t state;
   
-  game_read(argv[1], &info, &state);
+  game_read(input_file, &info, &state);
   game_search(&info, &state);
 
   return 0;
