@@ -289,9 +289,12 @@ const char* reset_color_str() {
 //////////////////////////////////////////////////////////////////////
 // Clear screen and set cursor pos to 0,0
 
-const char* clear_screen() {
+const char* unprint_board(const game_info_t* info) {
   if (g_options.color_display) {
-    return "\033[2J";
+    static char buf[256];
+    snprintf(buf, 256, "\033[%zuA\033[%zuD",
+             info->size+2, info->size+2);
+    return buf;
   } else {
     return "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
   }
@@ -516,8 +519,7 @@ void game_print(const game_info_t* info,
   for (size_t x=0; x<info->size; ++x) {
     printf("%s", BLOCK_CHAR);
   }
-  printf("%s", BLOCK_CHAR);
-  fflush(stdout);
+  printf("%s\n", BLOCK_CHAR);
   
 }
 
@@ -1355,10 +1357,9 @@ void game_animate_solution(const game_info_t* info,
     game_animate_solution(info, node->parent);
   }
 
-  printf("\n%s", clear_screen());
-  fflush(stdout);
-  
+  printf("%s", unprint_board(info));
   game_print(info, &node->state);
+  fflush(stdout);
 
   delay_seconds(0.1);
   
@@ -1375,7 +1376,7 @@ void game_search(const game_info_t* info,
 
   game_print(info, init_state);
   
-  printf("\n\nwill search up to %zu nodes\n", max_nodes);
+  printf("\nwill search up to %zu nodes\n", max_nodes);
 
   node_storage_t storage = node_storage_create(max_nodes);
 
@@ -1411,7 +1412,8 @@ void game_search(const game_info_t* info,
 
       if (game_can_move(info, &n->state, color, dir)) {
           
-        tree_node_t* child = node_create(&storage, n, info, parent_state);
+        tree_node_t* child = node_create(&storage, n, info,
+                                         parent_state);
 
         if (!child) {
 
@@ -1475,18 +1477,16 @@ void game_search(const game_info_t* info,
     
     assert(solution_node);
 
-    printf("initial heuristic=%g, cost to come=%g, cost to go=%g\n",
+    printf("initial heuristic=%g, cost to come=%g, cost to go=%g\n\n",
            root->cost_to_go,
            solution_node->cost_to_come,
            solution_node->cost_to_go);
 
     if (g_options.animate_solution) {
-      printf("\n");
       game_print(info, init_state);
       delay_seconds(1.0);
       game_animate_solution(info, solution_node);
     } else {
-      printf("\n\n");
       game_print(info, &solution_node->state);
     }
 
