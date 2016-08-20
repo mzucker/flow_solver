@@ -1513,7 +1513,7 @@ void usage(FILE* fp, int exitcode) {
           "  -r, --noregions         Disable freespace region analysis\n"
           "  -c, --constrained       Select next move by most constrained color\n"
           "  -b, --bfs               Run breadth-first search\n"
-          "  -m, --max-storage NUM   Restrict storage to NUM MB (default %f)\n"
+          "  -m, --max-storage NUM   Restrict storage to NUM MB (default %g)\n"
           "  -h, --help              See this help text\n\n",
           g_options.max_storage_mb);
 
