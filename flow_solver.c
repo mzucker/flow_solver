@@ -719,7 +719,7 @@ void game_read(const char* filename,
     }
   }
 
-  printf("read %zux%zu board with %zu colors from %s\n\n",
+  printf("read %zux%zu board with %zu colors from %s\n",
          info->size, info->size, info->num_colors, filename );
 
 }
@@ -1374,17 +1374,19 @@ void game_search(const game_info_t* info,
   size_t max_nodes = floor( g_options.max_storage_mb * MEGABYTE /
                             sizeof(tree_node_t) );
 
-  game_print(info, init_state);
-  
-  printf("\nwill search up to %zu nodes\n", max_nodes);
 
   node_storage_t storage = node_storage_create(max_nodes);
 
   tree_node_t* root = node_create(&storage, NULL, info, init_state);
   node_update_costs(info, root, 0);
 
+  printf("will search up to %zu nodes (%g MB)\n",
+         max_nodes, max_nodes*(double)sizeof(tree_node_t)/MEGABYTE);
+  
   printf("heuristic at start is %g\n\n",
          root->cost_to_go);
+
+  game_print(info, init_state);
 
   queue_t q = queue_create(max_nodes);
   queue_enqueue(&q, root);
@@ -1457,6 +1459,18 @@ void game_search(const game_info_t* info,
 
   } // while search active
 
+  if (result == SEARCH_SUCCESS) {
+    assert(solution_node);
+    if (!g_options.animate_solution) {
+      printf("\n");
+      game_print(info, &solution_node->state);
+    } else {
+      delay_seconds(1.0);
+      game_animate_solution(info, solution_node);
+    }
+    printf("\n");
+  }  
+
   const char* result_str;
 
   if (result == SEARCH_SUCCESS) {
@@ -1477,21 +1491,11 @@ void game_search(const game_info_t* info,
     
     assert(solution_node);
 
-    printf("initial heuristic=%g, cost to come=%g, cost to go=%g\n\n",
+    printf("initial heuristic=%g, final cost to come=%g, cost to go=%g\n",
            root->cost_to_go,
            solution_node->cost_to_come,
            solution_node->cost_to_go);
 
-    if (g_options.animate_solution) {
-      game_print(info, init_state);
-      delay_seconds(1.0);
-      game_animate_solution(info, solution_node);
-    } else {
-      game_print(info, &solution_node->state);
-    }
-
-    printf("\n");
-        
   }
 
   node_storage_destroy(&storage);
