@@ -839,6 +839,11 @@ void game_read(const char* filename,
     ++y;
   }
 
+  if (!info->num_colors) {
+    fprintf(stderr, "empty map!\n");
+    exit(1);
+  }
+
   for (size_t color=0; color<info->num_colors; ++color) {
 
     if (info->goal_pos[color] == INVALID_POS) {
@@ -1352,12 +1357,12 @@ void game_print_regions(const game_info_t* info,
       pos_t pos = pos_from_coords(x, y);
       pos_t rid = rmap[pos];
       if (!state->cells[pos]) {
-        assert(id != INVALID_POS);
+        assert(rid != INVALID_POS);
         char c = 65 + rid % 60;
         printf("%s%c%s",
                set_color_str(rid % MAX_COLORS), c, reset_color_str());
       } else {
-        assert(id == INVALID_POS);
+        assert(rid == INVALID_POS);
         printf(" ");
       }
     }
@@ -1835,16 +1840,18 @@ void game_diagnose(const game_info_t* info,
     uint8_t rmap[MAX_CELLS];
 
     size_t rcount = game_build_regions(info, &state_copy, rmap);
-    //printf("game regions:\n\n");
-    //game_print_regions(info, &state_copy, rmap);
 
     if (game_regions_stranded(info, &state_copy, rcount, rmap)) {
       printf("stranded -- state should be pruned!\n");
+      printf("game regions:\n\n");
+      game_print_regions(info, &state_copy, rmap);
       break;
     }
 
     if (game_regions_deadends(info, &state_copy, rcount, rmap)) {
       printf("dead-ended -- state should be pruned!\n");
+      printf("game regions:\n\n");
+      game_print_regions(info, &state_copy, rmap);
       break;
     }
 
