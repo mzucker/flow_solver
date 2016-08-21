@@ -16,14 +16,14 @@
 //
 //   - TODO: figure out why things only work for bigger puzzles if
 //           moves which are forced have zero cost.
-// 
-//   - TODO: replace options with command-line-switches
 //
-//   - TODO: detect bad thin regions of freespace that could never be filled
+//   - TODO: detect bottlenecks? (places where multiple flows would
+//           HAVE to pass through but can't
+//
+//   - TODO: detect fingers? 1-thick dead-end regions of freespace
 //
 //   - TODO: bidirectional search?
 //
-
 //////////////////////////////////////////////////////////////////////
 
 // Positions are 8-bit integers with 4 bits each for y, x.
@@ -93,7 +93,8 @@ typedef struct options_struct {
   int most_constrained_color;
   int shuffle_colors;
   int search_astar_like;
-  int check_freespace_regions;
+  int check_stranded;
+  int check_deadends;
   int penalize_exploration;
   const char* user_color_order;
   double max_storage_mb;
@@ -384,6 +385,33 @@ int pos_get_neighbors(const game_info_t* info,
   pos_get_coords(p, &x, &y);
 
   return get_neighbors(info, x, y, neighbors);
+
+}
+
+int get_wall_dist(const game_info_t* info,
+                  int x, int y) {
+
+  int p[2] = { x, y };
+  int d[2];
+
+  for (int i=0; i<2; ++i) {
+    int d0 = p[i];
+    int d1 = info->size - 1 - p[i];
+    d[i] = d0 < d1 ? d0 : d1;
+  }
+
+  return d[0] < d[1] ? d[0] : d[1];
+
+}
+
+int pos_get_wall_dist(const game_info_t* info,
+                      pos_t pos) {
+
+  int x, y;
+
+  pos_get_coords(pos, &x, &y);
+
+  return get_wall_dist(info, x, y);
 
 }
 
@@ -722,6 +750,7 @@ void game_read(const char* filename,
   }
 
   for (size_t color=0; color<info->num_colors; ++color) {
+
     if (info->goal_pos[color] == INVALID_POS) {
       game_print(info, state);
       fprintf(stderr, "\n\n%s: color %s%c%s has start but no end\n",
@@ -731,6 +760,30 @@ void game_read(const char* filename,
               reset_color_str());
       exit(1);
     }
+
+    int cur_wall = pos_get_wall_dist(info, state->cur_pos[color]);
+    int goal_wall = pos_get_wall_dist(info, info->goal_pos[color]);
+
+    printf("for color %s%c%s, cur is %d from wall and goal is %d\n",
+           set_color_str(info->color_ids[color]),
+           color_lookup[color],
+           reset_color_str(),
+           cur_wall, goal_wall);
+
+    if (goal_wall < cur_wall) {
+
+      printf("**FLIPPING**\n");
+      
+      pos_t tmp_pos = state->cur_pos[color];
+      state->cur_pos[color] = info->goal_pos[color];
+      info->goal_pos[color] = tmp_pos;
+
+      cell_t tmp_cell = state->cells[state->cur_pos[color]];
+      state->cells[state->cur_pos[color]] = state->cells[info->goal_pos[color]];
+      state->cells[info->goal_pos[color]] = tmp_cell;
+      
+    }
+    
   }
 
   printf("read %zux%zu board with %zu colors from %s\n",
@@ -753,19 +806,24 @@ int hcolor_compare(const void* a, const void *b) {
 void game_order_colors(game_info_t* info,
                        const game_state_t* state) {
 
-  /*
-  if (0) {
+  if (1) {
 
     int hcolor[MAX_COLORS][2];
 
     for (size_t color=0; color<info->num_colors; ++color) {
+
+      hcolor[color][0] = color;
+      hcolor[color][1] = (pos_get_wall_dist(info, state->cur_pos[color]));
+
+      
+      /*
       int cur_x, cur_y, goal_x, goal_y;
       pos_get_coords(state->cur_pos[color], &cur_x, &cur_y);
       pos_get_coords(info->goal_pos[color], &goal_x, &goal_y);
       int dx = abs(goal_x - cur_x);
       int dy = abs(goal_y - cur_y);
-      hcolor[color][0] = color;
       hcolor[color][1] = dx + dy;
+      */
     }
 
     mergesort(hcolor, info->num_colors, 2*sizeof(int),
@@ -784,7 +842,8 @@ void game_order_colors(game_info_t* info,
              g_options.color_display ? 'o' : d,
              reset_color_str(), hcolor[i][1]);
     }
-  */
+
+  }
 
   if (g_options.user_color_order) {
 
@@ -842,10 +901,9 @@ void game_order_colors(game_info_t* info,
   for (size_t i=0; i<info->num_colors; ++i) {
     int color = info->color_order[i];
     int id = info->color_ids[color];
-    char d = color_dict[id].display_char;
     printf("%s%c%s",
            set_color_str(id),
-           g_options.color_display ? 'O' : d,
+           color_dict[id].input_char,
            reset_color_str());
   }
   printf("\n");
@@ -969,7 +1027,7 @@ size_t game_build_regions(const game_info_t* info,
 // the current color bit flag to the regions adjacent to the current
 // or goal position. 
 
-void _game_regions_check(const game_info_t* info,
+void _game_regions_add_color(const game_info_t* info,
                          const game_state_t* state,
                          const uint8_t rmap[MAX_CELLS],
                          pos_t pos,
@@ -995,14 +1053,66 @@ void _game_regions_check(const game_info_t* info,
   
 }
 
+int game_regions_deadends(const game_info_t* info,
+                          const game_state_t* state,
+                          size_t rcount,
+                          const uint8_t rmap[MAX_CELLS]) {
+
+  // Check for fingers: any free cell must have more than one free
+  // neighbor. (note that uncompleted start/goal count as free in this
+  // case)
+
+  for (size_t y=0; y<info->size; ++y) {
+    for (size_t x=0; x<info->size; ++x) {
+
+      pos_t pos = pos_from_coords(x, y);
+      if (rmap[pos] >= rcount) { continue; }
+
+      pos_t neighbors[4];
+      int num_neighbors = get_neighbors(info, x, y, neighbors);
+
+      int num_free = 0;
+
+      for (int n=0; n<num_neighbors; ++n) {
+        pos_t neighbor_pos = neighbors[n];
+        if (rmap[neighbor_pos] == rmap[pos]) {
+          ++num_free;
+        } else {
+          for (size_t color=0; color<info->num_colors; ++color) {
+            if (state->completed & (1 << color)) {
+              continue;
+            }
+            if (neighbor_pos == state->cur_pos[color] ||
+                neighbor_pos == info->goal_pos[color]) {
+              ++num_free;
+            }
+          }
+                                                                 
+        }
+      }
+
+      if (num_free <= 1) {
+
+        return 1;
+        
+      }
+      
+    }
+  }
+
+  return 0;
+
+}
+                        
+
 //////////////////////////////////////////////////////////////////////
 // Check the results of the connected-component analysis to make sure
-// that every color 
+// that every color can get solved and no freespace is isolated
 
-int game_regions_ok(const game_info_t* info,
-                    const game_state_t* state,
-                    size_t rcount,
-                    const uint8_t rmap[MAX_CELLS]) {
+int game_regions_stranded(const game_info_t* info,
+                          const game_state_t* state,
+                          size_t rcount,
+                          const uint8_t rmap[MAX_CELLS]) {
 
   // For each region, we have bitflags to track whether current or
   // goal position is adjacent to the region. These get initted to 0.
@@ -1024,13 +1134,14 @@ int game_regions_ok(const game_info_t* info,
     }
 
     // Add color flag to all regions for cur_pos
-    _game_regions_check(info, state, rmap,
-                        state->cur_pos[color], cflag, cur_rflags);
+    _game_regions_add_color(info, state, rmap,
+                            state->cur_pos[color],
+                            cflag, cur_rflags);
 
     // Add color flag to all regions for goal_pos
-    _game_regions_check(info, state, rmap,
-                        info->goal_pos[color], cflag, goal_rflags);
-
+    _game_regions_add_color(info, state, rmap,
+                            info->goal_pos[color],
+                            cflag, goal_rflags);
 
     // Ensure this color is not "stranded" -- at least region must
     // touch each non-completed color for both current and goal.
@@ -1048,7 +1159,7 @@ int game_regions_ok(const game_info_t* info,
     // There was no region that touched both current and goal,
     // unsolvable from here.
     if (r == rcount) {
-      return 0;
+      return 1;
     }
 
   }
@@ -1058,12 +1169,12 @@ int game_regions_ok(const game_info_t* info,
   // stranded.
   for (size_t r=0; r<rcount; ++r) {
     if (!(cur_rflags[r] & goal_rflags[r])) {
-      return 0;
+      return 1;
     }
   }
 
   // Everything a-ok.
-  return 1;
+  return 0;
   
 }
 
@@ -1583,13 +1694,19 @@ void game_search(const game_info_t* info,
       
         }
 
-        if (g_options.check_freespace_regions) {
+        if (g_options.check_stranded ||
+            g_options.check_deadends) {
 
           size_t rcount = game_build_regions(info, child_state, rmap);
 
-          if (!game_regions_ok(info, child_state, rcount, rmap)) {
+          if ( (g_options.check_stranded &&
+                game_regions_stranded(info, child_state, rcount, rmap)) ||
+               (g_options.check_deadends &&
+                game_regions_deadends(info, child_state, rcount, rmap)) ) {
+
             node_storage_unalloc(&storage, child);
             continue;
+            
           }
 
         }
@@ -1611,7 +1728,7 @@ void game_search(const game_info_t* info,
       delay_seconds(1.0);
       game_animate_solution(info, solution_node);
     }
-  }  
+  } 
 
   const char* result_str;
 
@@ -1637,6 +1754,18 @@ void game_search(const game_info_t* info,
            solution_node->cost_to_come,
            solution_node->cost_to_go);
 
+  } else if (result == SEARCH_FULL) {
+
+    printf("here's the lowest cost thing on the queue:\n\n");
+
+    game_print(info, &queue_peek(&q)->state);
+
+    printf("\nand here's the last node allocated:\n\n");
+
+    game_print(info, &storage.start[storage.count-1].state);
+    
+ 
+
   }
 
   node_storage_destroy(&storage);
@@ -1655,8 +1784,9 @@ void usage(FILE* fp, int exitcode) {
 #ifndef _WIN32          
           "  -C, --color             Use ANSI color even if TERM not set or not a tty\n"
 #endif          
-          "  -s, --noself            Disable self-touch test\n"
-          "  -r, --noregions         Disable freespace region analysis\n"
+          "  -t, --touching          Disable path self-touch test\n"
+          "  -s, --stranded          Disable stranded checking\n"
+          "  -d, --deadends          Disable dead-end checking\n"
           "  -c, --constrained       Select next move by most constrained color\n"
           "  -e, --explore           Don't penalize exploration (move into freespace)\n"
           "  -S, --shuffle           Shuffle order of colors before solving\n"
@@ -1708,10 +1838,12 @@ int parse_options(int argc, char** argv) {
     } else if (!strcmp(opt, "-C") || !strcmp(opt, "--color")) {
       g_options.color_display = 1;
 #endif
-    } else if (!strcmp(opt, "-s") || !strcmp(opt, "--noself")) {
+    } else if (!strcmp(opt, "-t") || !strcmp(opt, "--touching")) {
       g_options.prevent_self_touching = 0;
-    } else if (!strcmp(opt, "-r") || !strcmp(opt, "--noregions")) {
-      g_options.check_freespace_regions = 0; 
+    } else if (!strcmp(opt, "-s") || !strcmp(opt, "--stranded")) {
+      g_options.check_stranded = 0;
+    } else if (!strcmp(opt, "-d") || !strcmp(opt, "--deadends")) {
+      g_options.check_deadends = 0;
     } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
       g_options.most_constrained_color = 1; 
     } else if (!strcmp(opt, "-e") || !strcmp(opt, "--explore")) {
@@ -1782,7 +1914,8 @@ int main(int argc, char** argv) {
   g_options.prevent_self_touching = 1;
   g_options.most_constrained_color = 0;
   g_options.search_astar_like = 1;
-  g_options.check_freespace_regions = 1;
+  g_options.check_stranded = 1;
+  g_options.check_deadends = 1;
   g_options.penalize_exploration = 1;
   g_options.user_color_order = NULL;
   g_options.max_storage_mb = 512;
