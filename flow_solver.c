@@ -10,6 +10,10 @@
 
 #ifndef _WIN32
 #include <unistd.h>
+#include <sys/time.h>
+#else
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
 
 // ideas:
@@ -87,20 +91,27 @@ typedef struct color_lookup_struct {
 
 // Options for this program
 typedef struct options_struct {
-  int display_animate;
-  int display_color;
-  int cost_check_touch;
-  int cost_check_stranded;
-  int cost_check_deadends;
-  int cost_penalize_exploration;
+
+  int         display_quiet;
+  int         display_diagnose;
+  int         display_animate;
+  int         display_color;
+  double      display_speedup;
   
-  int order_autosort_colors;
-  int order_most_constrained;
-  int order_random;
+  int         cost_check_touch;
+  int         cost_check_stranded;
+  int         cost_check_deadends;
+  int         cost_penalize_exploration;
+  
+  int         order_autosort_colors;
+  int         order_most_constrained;
+  int         order_random;
   const char* order_user;
   
-  int search_astar_like;
-  double max_storage_mb;
+  int         search_astar_like;
+  size_t      search_max_nodes;
+  double      search_max_mb;
+  
 } options_t;
 
 // Static information about a puzzle layout -- anything that does not
@@ -248,6 +259,31 @@ const color_lookup color_dict[MAX_COLORS] = {
 // Global options struct gets setup during main
 options_t g_options;
 
+
+double now() {
+
+  int64_t sec, usec;
+  
+#ifdef _WIN32
+  union {
+    LONG_LONG ns100; /*time since 1 Jan 1601 in 100ns units */
+    FILETIME ft;
+  } now;
+  GetSystemTimeAsFileTime (&now.ft);
+  usec = (long) ((now.ns100 / 10LL) % 1000000LL);
+  sec = (long) ((now.ns100 - 116444736000000000LL) / 10000000LL);
+#else
+  struct timeval tv;
+  gettimeofday(&tv, 0);
+  sec = tv.tv_sec;
+  usec = tv.tv_usec;
+#endif
+
+  return (double)sec + (double)usec * 1e-6;
+
+}
+  
+
 //////////////////////////////////////////////////////////////////////
 // Peform lookup in color_dict above
 
@@ -329,7 +365,7 @@ void delay_seconds(double s) {
 #ifdef _WIN32
   // TODO: find win32 equivalent of usleep?
 #else
-  usleep((size_t)(s * 1e6));
+  usleep((size_t)(s * 1e6 / g_options.display_speedup));
 #endif
 }
 
@@ -773,17 +809,79 @@ void game_read(const char* filename,
     
   }
 
-  printf("read %zux%zu board with %zu colors from %s\n",
-         info->size, info->size, info->num_colors, filename );
+  if (!g_options.display_quiet) {
+    printf("read %zux%zu board with %zu colors from %s\n\n",
+           info->size, info->size, info->num_colors, filename );
+  }
 
 }
 
 //////////////////////////////////////////////////////////////////////
-// Shuffle colors
+// Pick the next color to move deterministically
+
+int game_next_move_color(const game_info_t* info,
+                         const game_state_t* state) {
+
+  if (state->last_color < info->num_colors &&
+      !(state->completed & (1 << state->last_color))) {
+    return state->last_color;
+  }
+
+  if (g_options.order_most_constrained) {
+
+    size_t best_color = -1;
+    int best_free = 4;
+    
+    for (size_t i=0; i<info->num_colors; ++i) {
+
+      int color = info->color_order[i];
+      if (state->completed & (1 << color)) { continue; }
+
+      pos_t neighbors[4];
+        
+      int num_neighbors = pos_get_neighbors(info, state->cur_pos[color],
+                                            neighbors);
+      int num_free = 0;
+        
+      for (int n=0; n<num_neighbors; ++n) {
+        if (state->cells[neighbors[n]] == 0) { ++num_free; }
+      }
+        
+      if (num_free < best_free) {
+        best_free = num_free;
+        best_color = color;
+      }
+
+    }
+
+    assert(best_color < info->num_colors);
+
+    return best_color;
+    
+  } else {
+
+    for (size_t i=0; i<info->num_colors; ++i) {
+      int color = info->color_order[i];
+      if (state->completed & (1 << color)) { continue; }
+      return color;
+    }
+
+    assert(0 && "unreachable code");
+    return -1;
+    
+  } 
+
+}
+
+//////////////////////////////////////////////////////////////////////
+// Compare 2 ints
 
 int cmp(int a, int b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
+
+//////////////////////////////////////////////////////////////////////
+// For sorting colors
 
 int color_features_compare(const void* vptr_a, const void* vptr_b) {
 
@@ -800,6 +898,9 @@ int color_features_compare(const void* vptr_a, const void* vptr_b) {
   return -cmp(a->cur_goal_dist, b->cur_goal_dist);
 
 }
+
+//////////////////////////////////////////////////////////////////////
+// Place the game colors into a set order
 
 void game_order_colors(game_info_t* info,
                        game_state_t* state) {
@@ -842,6 +943,17 @@ void game_order_colors(game_info_t* info,
       }
     }
     
+  } else if (g_options.order_random) {
+    
+    srand(now() * 1e6);
+    
+    for (size_t i=info->num_colors-1; i>0; --i) {
+      size_t j = rand() % (i+1);
+      int tmp = info->color_order[i];
+      info->color_order[i] = info->color_order[j];
+      info->color_order[j] = tmp;
+    }
+
   } else if (g_options.order_autosort_colors) {
 
     color_features_t cf[MAX_COLORS];
@@ -862,8 +974,6 @@ void game_order_colors(game_info_t* info,
 
       if (cf[color].cur_wall_dist > cf[color].goal_wall_dist) {
 
-        printf("**FLIPPING**\n");
-        
         pos_t tmp_pos = state->cur_pos[color];
         state->cur_pos[color] = info->goal_pos[color];
         info->goal_pos[color] = tmp_pos;
@@ -889,46 +999,33 @@ void game_order_colors(game_info_t* info,
       info->color_order[i] = cf[i].index;
     }
     
-    for (size_t i=0; i<info->num_colors; ++i) {
-      int color = cf[i].index;
+  }
+
+  if (!g_options.display_quiet) {
+    
+    if (g_options.order_most_constrained) {
+      int color = game_next_move_color(info, state);
       int id = info->color_ids[color];
-      char d = color_dict[id].display_char;
-      printf("color %s%c%s has cur wall dist=%d, "
-             "goal wall dist=%d, cur-goal dist=%d\n",
+      printf("choosing color by most constrained. first is %s%c%s.\n",
              set_color_str(id),
-             g_options.display_color ? 'o' : d,
-             reset_color_str(),
-             cf[i].cur_wall_dist,
-             cf[i].goal_wall_dist,
-             cf[i].cur_goal_dist);
-    }
-
-  } else if (g_options.order_random) {
-
-    srand(time(NULL));
-
-    for (size_t i=info->num_colors-1; i>0; --i) {
-      size_t j = rand() % (i+1);
-      int tmp = info->color_order[i];
-      info->color_order[i] = info->color_order[j];
-      info->color_order[j] = tmp;
+             color_dict[id].input_char,
+             reset_color_str());
+    } else {
+      printf("color order: ");
+      for (size_t i=0; i<info->num_colors; ++i) {
+        int color = info->color_order[i];
+        int id = info->color_ids[color];
+        char i = color_dict[id].input_char;
+        char d = color_dict[id].display_char;
+        printf("%s%c%s",
+               set_color_str(id),
+               g_options.display_color ? i : d,
+               reset_color_str());
+      }
+      printf("\n");
     }
 
   }
-
-  printf("color order: ");
-  for (size_t i=0; i<info->num_colors; ++i) {
-    int color = info->color_order[i];
-    int id = info->color_ids[color];
-    printf("%s%c%s",
-           set_color_str(id),
-           color_dict[id].input_char,
-           reset_color_str());
-  }
-
-  printf("\n");
-  
-
 
 }
 
@@ -1564,63 +1661,6 @@ void node_update_costs(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
-// Pick the next color to move deterministically
-
-int game_next_move_color(const game_info_t* info,
-                         const game_state_t* state) {
-
-  if (state->last_color < info->num_colors &&
-      !(state->completed & (1 << state->last_color))) {
-    return state->last_color;
-  }
-
-  if (g_options.order_most_constrained) {
-
-    size_t best_color = -1;
-    int best_free = 4;
-    
-    for (size_t i=0; i<info->num_colors; ++i) {
-
-      int color = info->color_order[i];
-      if (state->completed & (1 << color)) { continue; }
-
-      pos_t neighbors[4];
-        
-      int num_neighbors = pos_get_neighbors(info, state->cur_pos[color],
-                                            neighbors);
-      int num_free = 0;
-        
-      for (int n=0; n<num_neighbors; ++n) {
-        if (state->cells[neighbors[n]] == 0) { ++num_free; }
-      }
-        
-      if (num_free < best_free) {
-        best_free = num_free;
-        best_color = color;
-      }
-
-    }
-
-    assert(best_color < info->num_colors);
-
-    return best_color;
-    
-  } else {
-
-    for (size_t i=0; i<info->num_colors; ++i) {
-      int color = info->color_order[i];
-      if (state->completed & (1 << color)) { continue; }
-      return color;
-    }
-
-    assert(0 && "unreachable code");
-    return -1;
-    
-  } 
-
-}
-
-//////////////////////////////////////////////////////////////////////
 // Animate the solution by printing out boards in reverse order,
 // following parent pointers back from solution to root.
 
@@ -1643,24 +1683,32 @@ void game_animate_solution(const game_info_t* info,
 // Peforms A* or BFS search
 
 void game_search(const game_info_t* info,
-                 const game_state_t* init_state) {
+                 const game_state_t* init_state,
+                 const char* input_filename) {
 
-  size_t max_nodes = floor( g_options.max_storage_mb * MEGABYTE /
-                            sizeof(tree_node_t) );
+  size_t max_nodes = g_options.search_max_nodes;
 
+  if (!max_nodes) {
+    max_nodes = floor( g_options.search_max_mb * MEGABYTE /
+                       sizeof(tree_node_t) );
+  }
 
   node_storage_t storage = node_storage_create(max_nodes);
 
   tree_node_t* root = node_create(&storage, NULL, info, init_state);
   node_update_costs(info, root, 0);
 
-  printf("will search up to %'zu nodes (%'g MB)\n",
-         max_nodes, max_nodes*(double)sizeof(tree_node_t)/MEGABYTE);
+  if (!g_options.display_quiet) {
+    
+    printf("will search up to %'zu nodes (%'.2f MB)\n",
+           max_nodes, max_nodes*(double)sizeof(tree_node_t)/MEGABYTE);
   
-  printf("heuristic at start is %'g\n\n",
-         root->cost_to_go);
+    printf("heuristic at start is %'g\n\n",
+           root->cost_to_go);
 
-  game_print(info, init_state);
+    game_print(info, init_state);
+
+  }
 
   queue_t q = queue_create(max_nodes);
   queue_enqueue(&q, root);
@@ -1669,6 +1717,8 @@ void game_search(const game_info_t* info,
   const tree_node_t* solution_node = NULL;
 
   uint8_t rmap[MAX_CELLS];
+
+  double start = now();
 
   while (result == SEARCH_ACTIVE) {
 
@@ -1739,52 +1789,74 @@ void game_search(const game_info_t* info,
 
   } // while search active
 
-  if (result == SEARCH_SUCCESS) {
-    assert(solution_node);
-    if (!g_options.display_animate) {
-      printf("\n");
-      game_print(info, &solution_node->state);
+  double elapsed = now() - start;
+
+  if (g_options.display_quiet) {
+
+    char result_char;
+
+    if (result == SEARCH_SUCCESS) {
+      result_char = 's';
+    } else if (result == SEARCH_FULL) {
+      result_char = 'l';
     } else {
-      delay_seconds(1.0);
-      game_animate_solution(info, solution_node);
+      result_char = 'u';
     }
-  } 
 
-  const char* result_str;
+    printf("%s %c %8.3f %8zu\n",
+           input_filename,
+           result_char,
+           elapsed,
+           storage.count);
 
-  if (result == SEARCH_SUCCESS) {
-    result_str = "successful";
-  } else if (result == SEARCH_FULL) {
-    result_str = "ran out of memory";
   } else {
-    result_str = "unsolvable";
-  }
+  
+    if (result == SEARCH_SUCCESS) {
+      assert(solution_node);
+      if (!g_options.display_animate) {
+        printf("\n");
+        game_print(info, &solution_node->state);
+      } else {
+        delay_seconds(1.0);
+        game_animate_solution(info, solution_node);
+      }
+    } 
 
-  double storage_mb = (storage.count * (double)sizeof(tree_node_t) / MEGABYTE);
+    const char* result_str;
 
-  printf("\nsearch %s after %'zu nodes (%'g MB)\n",
-         result_str,
-         storage.count, storage_mb);
+    if (result == SEARCH_SUCCESS) {
+      result_str = "successful";
+    } else if (result == SEARCH_FULL) {
+      result_str = "ran out of memory";
+    } else {
+      result_str = "unsolvable";
+    }
 
-  if (result == SEARCH_SUCCESS) {
+    double storage_mb = (storage.count * (double)sizeof(tree_node_t) / MEGABYTE);
+
+    printf("\nsearch %s after %'.3f seconds and %'zu nodes (%'.2f MB)\n",
+           result_str, elapsed,
+           storage.count, storage_mb);
+
+    if (result == SEARCH_SUCCESS) {
     
-    assert(solution_node);
+      assert(solution_node);
 
-    printf("final cost to come=%'g, cost to go=%'g\n",
-           solution_node->cost_to_come,
-           solution_node->cost_to_go);
+      printf("final cost to come=%'g, cost to go=%'g\n",
+             solution_node->cost_to_come,
+             solution_node->cost_to_go);
 
-  } else if (result == SEARCH_FULL) {
+    } else if (result == SEARCH_FULL && g_options.display_diagnose) {
 
-    printf("here's the lowest cost thing on the queue:\n\n");
+      printf("here's the lowest cost thing on the queue:\n\n");
 
-    game_print(info, &queue_peek(&q)->state);
+      game_print(info, &queue_peek(&q)->state);
 
-    printf("\nand here's the last node allocated:\n\n");
+      printf("\nand here's the last node allocated:\n\n");
 
-    game_print(info, &storage.start[storage.count-1].state);
+      game_print(info, &storage.start[storage.count-1].state);
     
- 
+    }
 
   }
 
@@ -1796,32 +1868,36 @@ void game_search(const game_info_t* info,
 void usage(FILE* fp, int exitcode) {
 
   fprintf(fp,
-          "usage: flow_solver [OPTIONS] BOARD.txt\n\n"
+          "usage: flow_solver [OPTIONS] BOARD1.txt [BOARD2.txt [...]]\n\n"
           "Display options:\n\n"
+          "  -q, --quiet             Reduce output\n"
+          "  -D, --diagnose          Display nodes when storage exceeded\n"
           "  -A, --no-animation      Disable animating solution\n"
+          "  -f, --fast              Speed up animation 8x\n"
 #ifndef _WIN32          
-          "  -C, --color             Use ANSI color even if TERM not set or not a tty\n"
+          "  -C, --color             Force use of ANSI color\n"
 #endif
           "\n"
           "Cost/feasibility options:\n\n"
           "  -t, --touch             Disable path self-touch test\n"
           "  -s, --stranded          Disable stranded checking\n"
           "  -d, --deadends          Disable dead-end checking\n"
-          "  -e, --noexplore         Penalize exploration (move into freespace)\n"
+          "  -e, --noexplore         Penalize exploring away from walls\n"
           "\n"
           "Color ordering options:\n\n"
           "  -a, --noautosort        Disable auto-sort of color order\n"
           "  -o, --order ORDER       Set color order on command line\n"
           "  -r, --randomize         Shuffle order of colors before solving\n"
-          "  -c, --constrained       Always pick most constrained color for next move\n"
+          "  -c, --constrained       Choose in order of most constrained\n"
           "\n"
           "Search options:\n\n"
           "  -b, --bfs               Run breadth-first search\n"
+          "  -n, --max-nodes NUM     Restruct storage to NUM nodes\n"
           "  -m, --max-storage NUM   Restrict storage to NUM MB (default %'g)\n"
           "\n"
           "Help:\n\n"
           "  -h, --help              See this help text\n\n",
-          g_options.max_storage_mb);
+          g_options.search_max_mb);
 
   exit(exitcode);
   
@@ -1846,9 +1922,9 @@ int exists(const char* fn) {
 //////////////////////////////////////////////////////////////////////
 // Parse command-line options
 
-int parse_options(int argc, char** argv) {
-
-  int input_arg = -1;
+size_t parse_options(int argc, char** argv, const char** input_files) {
+  
+  size_t num_inputs = 0;
 
   if (argc < 2) {
     fprintf(stderr, "not enough args!\n\n");
@@ -1859,8 +1935,14 @@ int parse_options(int argc, char** argv) {
     
     const char* opt = argv[i];
     
-    if (!strcmp(opt, "-A") || !strcmp(opt, "--no-animation")) {
+    if (!strcmp(opt, "-q") || !strcmp(opt, "--quiet")) {
+      g_options.display_quiet = 1;
+    } else if (!strcmp(opt, "-D") || !strcmp(opt, "--diagnose")) {
+      g_options.display_diagnose = 1;
+    } else if (!strcmp(opt, "-A") || !strcmp(opt, "--no-animation")) {
       g_options.display_animate = 0;
+    } else if (!strcmp(opt, "-f") || !strcmp(opt, "--fast")) {
+      g_options.display_speedup = 8.0;
 #ifndef _WIN32      
     } else if (!strcmp(opt, "-C") || !strcmp(opt, "--color")) {
       g_options.display_color = 1;
@@ -1887,6 +1969,22 @@ int parse_options(int argc, char** argv) {
       g_options.order_most_constrained = 1; 
     } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bfs")) {
       g_options.search_astar_like = 0;
+    } else if (!strcmp(opt, "-n") || !strcmp(opt, "--max-nodes")) {
+      
+      if (i+1 == argc) {
+        fprintf(stderr, "-n, --max-nodes needs argument\n");
+        usage(stderr, 1);
+      }
+      
+      opt = argv[++i];
+      
+      char* endptr;
+      g_options.search_max_nodes = strtol(opt, &endptr, 10);
+      if (!endptr || *endptr) {
+        fprintf(stderr, "error parsing max nodes %s on command line!\n\n", opt);
+        usage(stderr, 1);
+      }
+      
     } else if (!strcmp(opt, "-m") || !strcmp(opt, "--max-storage")) {
 
       if (i+1 == argc) {
@@ -1897,37 +1995,33 @@ int parse_options(int argc, char** argv) {
       opt = argv[++i];
       
       char* endptr;
-      g_options.max_storage_mb = strtod(opt, &endptr);
-      if (!endptr || *endptr || g_options.max_storage_mb <= 0) {
+      g_options.search_max_mb = strtod(opt, &endptr);
+      if (!endptr || *endptr || g_options.search_max_mb <= 0) {
         fprintf(stderr, "error parsing max storage %s on command line!\n\n", opt);
         usage(stderr, 1);
       }
 
+      
     } else if (!strcmp(opt, "-h") || !strcmp(opt, "--help")) {
       usage(stdout, 0);
-    } else if (input_arg < 0 && exists(opt)) {
-      input_arg = i;
+    } else if (exists(opt)) {
+      input_files[num_inputs++] = opt;
+    } else if (opt[0] == '-') {
+      fprintf(stderr, "unrecognized option: %s\n\n", opt);
+      usage(stderr, 1);
     } else {
-      if (opt[0] == '-') {
-        fprintf(stderr, "unrecognized option: %s\n\n", opt);
-        usage(stderr, 1);
-      } else if (input_arg < 0) {
-        fprintf(stderr, "error opening %s\n", opt);
-        exit(1);
-      } else {
-        fprintf(stderr, "maximum one puzzle to read\n\n");
-        usage(stderr, 1);
-      }
+      fprintf(stderr, "error opening %s\n", opt);
+      exit(1);
     }
     
   }
 
-  if (input_arg < 0) {
+  if (!num_inputs) {
     fprintf(stderr, "no input file!\n\n");
     usage(stderr, 1);
   }
 
-  return input_arg;
+  return num_inputs;
 
 }
 
@@ -1937,9 +2031,12 @@ int parse_options(int argc, char** argv) {
 int main(int argc, char** argv) {
 
   setlocale(LC_NUMERIC, "");
-    
+
+  g_options.display_quiet = 0;
+  g_options.display_diagnose = 0;
   g_options.display_animate = 1;
   g_options.display_color = terminal_has_color();
+  g_options.display_speedup = 1.0;
   g_options.cost_check_touch = 1;
   g_options.order_autosort_colors = 1;
   g_options.order_most_constrained = 0;
@@ -1948,23 +2045,44 @@ int main(int argc, char** argv) {
   g_options.cost_check_deadends = 1;
   g_options.cost_penalize_exploration = 0;
   g_options.order_user = NULL;
-  g_options.max_storage_mb = 512;
+  g_options.search_max_nodes = 0;
+  g_options.search_max_mb = 512;
 
-  int input_arg = parse_options(argc, argv);
+  const char* input_files[argc];
   
-  const char* input_file = argv[input_arg];
+  size_t num_inputs = parse_options(argc, argv, input_files);
   
   queue_setup();
 
-  printf("sizeof(game_state_t) = %zu\n", sizeof(game_state_t));
-  
   game_info_t  info;
   game_state_t state;
-  
-  game_read(input_file, &info, &state);
-  game_order_colors(&info, &state);
-  game_search(&info, &state);
 
+  size_t max_width = 0;
+
+  for (size_t i=0; i<num_inputs; ++i) {
+    size_t l = strlen(input_files[i]);
+    if (l > max_width) { max_width = l; }
+  }
+  
+  for (size_t i=0; i<num_inputs; ++i) {
+
+    if (i && !g_options.display_quiet) {
+      printf("\n***********************************"
+             "***********************************\n\n");
+    }
+
+    const char* input_file = input_files[i];
+
+    char input_file_padded[1024];
+    snprintf(input_file_padded, 1024, "%-*s",
+             (int)max_width, input_file);
+  
+    game_read(input_file, &info, &state);
+    game_order_colors(&info, &state);
+    game_search(&info, &state, input_file_padded);
+
+  }
+    
   return 0;
   
 }
