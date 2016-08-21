@@ -146,6 +146,13 @@ typedef struct game_state_struct {
   
 } game_state_t;
 
+typedef struct color_features_struct {
+  int index;
+  int cur_wall_dist;
+  int goal_wall_dist;
+  int cur_goal_dist;
+} color_features_t;
+
 // Disjoint-set data structure for connected component analysis of free
 // space (see region_ functions).
 typedef struct region_struct {
@@ -662,7 +669,7 @@ void game_read(const char* filename,
   while (info->size == 0 || y < info->size) {
 
     char* s = fgets(buf, MAX_SIZE, fp);
-    size_t l = strlen(s);
+    size_t l = s ? strlen(s) : 0;
     
     if (!s || s[l-1] != '\n') {
       fprintf(stderr, "%s:%zu: unexpected EOF\n", filename, y+1);
@@ -794,12 +801,23 @@ void game_read(const char* filename,
 //////////////////////////////////////////////////////////////////////
 // Shuffle colors
 
-int hcolor_compare(const void* a, const void *b) {
+int cmp(int a, int b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 
-  int da = ((const int*)a)[1];
-  int db = ((const int*)b)[1];
+int color_features_compare(const void* vptr_a, const void* vptr_b) {
 
-  return da < db ? -1 : da > db ? 1 : 0;
+  const color_features_t* a = (const color_features_t*)vptr_a;
+  const color_features_t* b = (const color_features_t*)vptr_b;
+
+  int w = cmp(a->cur_wall_dist, b->cur_wall_dist);
+  
+  if (w) { return w; }
+
+  int g = -cmp(a->goal_wall_dist, b->goal_wall_dist);
+  if (g) { return g; }
+
+  return -cmp(a->cur_goal_dist, b->cur_goal_dist);
 
 }
 
@@ -808,39 +826,44 @@ void game_order_colors(game_info_t* info,
 
   if (1) {
 
-    int hcolor[MAX_COLORS][2];
+    color_features_t cf[MAX_COLORS];
 
     for (size_t color=0; color<info->num_colors; ++color) {
 
-      hcolor[color][0] = color;
-      hcolor[color][1] = (pos_get_wall_dist(info, state->cur_pos[color]));
-
-      
-      /*
       int cur_x, cur_y, goal_x, goal_y;
+
       pos_get_coords(state->cur_pos[color], &cur_x, &cur_y);
       pos_get_coords(info->goal_pos[color], &goal_x, &goal_y);
+
       int dx = abs(goal_x - cur_x);
       int dy = abs(goal_y - cur_y);
-      hcolor[color][1] = dx + dy;
-      */
+      
+      cf[color].index = color;
+      cf[color].cur_wall_dist = get_wall_dist(info, cur_x, cur_y);
+      cf[color].goal_wall_dist = get_wall_dist(info, goal_x, goal_y);
+      cf[color].cur_goal_dist = dx + dy;
+
     }
 
-    mergesort(hcolor, info->num_colors, 2*sizeof(int),
-              hcolor_compare);
+    mergesort(cf, info->num_colors, sizeof(color_features_t),
+              color_features_compare);
 
     for (size_t i=0; i<info->num_colors; ++i) {
-      info->color_order[i] = hcolor[i][0];
+      info->color_order[i] = cf[i].index;
     }
     
     for (size_t i=0; i<info->num_colors; ++i) {
-      int color = hcolor[i][0];
+      int color = cf[i].index;
       int id = info->color_ids[color];
       char d = color_dict[id].display_char;
-      printf("distance for %s%c%s is %d\n",
+      printf("color %s%c%s has cur wall dist=%d, "
+             "goal wall dist=%d, cur-goal dist=%d\n",
              set_color_str(id),
              g_options.color_display ? 'o' : d,
-             reset_color_str(), hcolor[i][1]);
+             reset_color_str(),
+             cf[i].cur_wall_dist,
+             cf[i].goal_wall_dist,
+             cf[i].cur_goal_dist);
     }
 
   }
