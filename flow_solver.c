@@ -767,29 +767,6 @@ void game_read(const char* filename,
               reset_color_str());
       exit(1);
     }
-
-    int cur_wall = pos_get_wall_dist(info, state->cur_pos[color]);
-    int goal_wall = pos_get_wall_dist(info, info->goal_pos[color]);
-
-    printf("for color %s%c%s, cur is %d from wall and goal is %d\n",
-           set_color_str(info->color_ids[color]),
-           color_lookup[color],
-           reset_color_str(),
-           cur_wall, goal_wall);
-
-    if (goal_wall < cur_wall) {
-
-      printf("**FLIPPING**\n");
-      
-      pos_t tmp_pos = state->cur_pos[color];
-      state->cur_pos[color] = info->goal_pos[color];
-      info->goal_pos[color] = tmp_pos;
-
-      cell_t tmp_cell = state->cells[state->cur_pos[color]];
-      state->cells[state->cur_pos[color]] = state->cells[info->goal_pos[color]];
-      state->cells[info->goal_pos[color]] = tmp_cell;
-      
-    }
     
   }
 
@@ -822,7 +799,7 @@ int color_features_compare(const void* vptr_a, const void* vptr_b) {
 }
 
 void game_order_colors(game_info_t* info,
-                       const game_state_t* state) {
+                       game_state_t* state) {
 
   if (1) {
 
@@ -841,6 +818,25 @@ void game_order_colors(game_info_t* info,
       cf[color].index = color;
       cf[color].cur_wall_dist = get_wall_dist(info, cur_x, cur_y);
       cf[color].goal_wall_dist = get_wall_dist(info, goal_x, goal_y);
+
+      if (cf[color].cur_wall_dist > cf[color].goal_wall_dist) {
+
+        printf("**FLIPPING**\n");
+        
+        pos_t tmp_pos = state->cur_pos[color];
+        state->cur_pos[color] = info->goal_pos[color];
+        info->goal_pos[color] = tmp_pos;
+        
+        cell_t tmp_cell = state->cells[state->cur_pos[color]];
+        state->cells[state->cur_pos[color]] = state->cells[info->goal_pos[color]];
+        state->cells[info->goal_pos[color]] = tmp_cell;
+
+        int tmp_dist = cf[color].cur_wall_dist;
+        cf[color].cur_wall_dist = cf[color].goal_wall_dist;
+        cf[color].goal_wall_dist = tmp_dist;
+      
+      }
+        
       cf[color].cur_goal_dist = dx + dy;
 
     }
