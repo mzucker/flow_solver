@@ -40,7 +40,7 @@ enum {
   
   // Maximum # cells in a valid puzzle -- since we just use bit
   // shifting to do x/y, need to allocate space for 1 unused column.
-  MAX_CELLS = (MAX_SIZE+1)*MAX_SIZE,
+  MAX_CELLS = (MAX_SIZE+1)*MAX_SIZE-1,
 
   // One million(ish) bytes
   MEGABYTE = 1024*1024,
@@ -95,6 +95,7 @@ typedef struct options_struct {
   int search_astar_like;
   int check_freespace_regions;
   int penalize_exploration;
+  const char* user_color_order;
   double max_storage_mb;
 } options_t;
 
@@ -134,6 +135,9 @@ typedef struct game_state_struct {
 
   // How many free cells?
   uint8_t  num_free;
+
+  // Which was the last color to move?
+  uint8_t  last_color;
 
   // Bitflag indicating whether each color has been completed or not
   // (cur_pos is adjacent to goal_pos).
@@ -566,6 +570,7 @@ double game_make_move(const game_info_t* info,
   state->cells[new_pos] = move;
   state->cur_pos[color] = new_pos;
   --state->num_free;
+  state->last_color = color;
 
   double action_cost = 1;
 
@@ -615,6 +620,8 @@ void game_read(const char* filename,
   
   memset(state->cur_pos, 0xff, sizeof(state->cur_pos));
   memset(info->goal_pos,  0xff, sizeof(info->goal_pos));
+
+  state->last_color = -1;
 
   size_t y=0;
 
@@ -746,6 +753,7 @@ int hcolor_compare(const void* a, const void *b) {
 void game_order_colors(game_info_t* info,
                        const game_state_t* state) {
 
+  /*
   if (0) {
 
     int hcolor[MAX_COLORS][2];
@@ -776,6 +784,46 @@ void game_order_colors(game_info_t* info,
              g_options.color_display ? 'o' : d,
              reset_color_str(), hcolor[i][1]);
     }
+  */
+
+  if (g_options.user_color_order) {
+
+    uint8_t in_use[MAX_COLORS];
+    memset(in_use, 0, MAX_COLORS);
+
+    size_t k;
+    
+    for (k=0; k<info->num_colors && g_options.user_color_order[k]; ++k) {
+
+      char c = g_options.user_color_order[k];
+
+      for (size_t color=0; color<info->num_colors; ++color) {
+        int id = info->color_ids[color];
+        if (c == color_dict[id].input_char) {
+          if (in_use[color]) {
+            fprintf(stderr, "error ordering colors: %c already used\n", c);
+            exit(1);
+          }
+          in_use[color] = 1;
+          info->color_order[k] = color;
+          c = 0;
+          break;
+        }
+      }
+
+      if (c) {
+        fprintf(stderr, "error ordering colors: %c not in puzzle\n", c);
+        exit(1);
+      }
+
+    }
+
+    for (size_t color=0; color<info->num_colors; ++color) {
+      if (!in_use[color]) {
+        info->color_order[k++] = color;
+      }
+    }
+    
 
   } else if (g_options.shuffle_colors) {
 
@@ -797,7 +845,7 @@ void game_order_colors(game_info_t* info,
     char d = color_dict[id].display_char;
     printf("%s%c%s",
            set_color_str(id),
-           g_options.color_display ? 'o' : d,
+           g_options.color_display ? 'O' : d,
            reset_color_str());
   }
   printf("\n");
@@ -1390,6 +1438,11 @@ void node_update_costs(const game_info_t* info,
 int game_next_move_color(const game_info_t* info,
                          const game_state_t* state) {
 
+  if (state->last_color < info->num_colors &&
+      !(state->completed & (1 << state->last_color))) {
+    return state->last_color;
+  }
+
   if (g_options.most_constrained_color) {
 
     size_t best_color = -1;
@@ -1607,6 +1660,7 @@ void usage(FILE* fp, int exitcode) {
           "  -c, --constrained       Select next move by most constrained color\n"
           "  -e, --explore           Don't penalize exploration (move into freespace)\n"
           "  -S, --shuffle           Shuffle order of colors before solving\n"
+          "  -o, --order ORDER       Set color order on command line\n"
           "  -b, --bfs               Run breadth-first search\n"
           "  -m, --max-storage NUM   Restrict storage to NUM MB (default %'g)\n"
           "  -h, --help              See this help text\n\n",
@@ -1661,9 +1715,15 @@ int parse_options(int argc, char** argv) {
     } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
       g_options.most_constrained_color = 1; 
     } else if (!strcmp(opt, "-e") || !strcmp(opt, "--explore")) {
-      g_options.penalize_exploration = 1;
+      g_options.penalize_exploration = 0;
     } else if (!strcmp(opt, "-S") || !strcmp(opt, "--shuffle")) {
       g_options.shuffle_colors = 1;
+    } else if (!strcmp(opt, "-o") || !strcmp(opt, "--order")) {
+      if (i+1 == argc) {
+        fprintf(stderr, "-o, --order needs argument\n");
+        usage(stderr, 1);
+      }
+      g_options.user_color_order = argv[++i];
     } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bfs")) {
       g_options.search_astar_like = 0;
     } else if (!strcmp(opt, "-m") || !strcmp(opt, "--max-storage")) {
@@ -1724,6 +1784,7 @@ int main(int argc, char** argv) {
   g_options.search_astar_like = 1;
   g_options.check_freespace_regions = 1;
   g_options.penalize_exploration = 1;
+  g_options.user_color_order = NULL;
   g_options.max_storage_mb = 512;
 
   int input_arg = parse_options(argc, argv);
