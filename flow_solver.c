@@ -21,8 +21,12 @@
 //   - TODO: figure out why things only work for bigger puzzles if
 //           moves which are forced have zero cost.
 //
-//   - TODO: detect bottlenecks? (places where multiple flows would
-//           HAVE to pass through but can't
+//   - TODO: detect bottlenecks/choke points? (places where multiple
+//           flows would HAVE to pass through but can't
+//
+//   - TODO: impute cells near endpoint that must be filled. a free
+//           cell next to an endpoint that has only one valid neighbor
+//           *must* be the next stop along that path.
 //
 //   - TODO: detect fingers? 1-thick dead-end regions of freespace
 //
@@ -342,6 +346,28 @@ const char* reset_color_str() {
   } else {
     return "";
   }
+}
+
+//////////////////////////////////////////////////////////////////////
+// For displaying a color nicely
+
+const char* color_name_char(const game_info_t* info,
+                            int color) {
+
+  int id = info->color_ids[color];
+  char i = color_dict[id].input_char;
+  char d = color_dict[id].display_char;
+
+  static char buf[1024];
+
+  snprintf(buf, 1024, "%s%c%s",
+           set_color_str(id),
+           g_options.display_color ? i : d,
+           reset_color_str());
+
+  return buf;
+  
+
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1005,22 +1031,13 @@ void game_order_colors(game_info_t* info,
     
     if (g_options.order_most_constrained) {
       int color = game_next_move_color(info, state);
-      int id = info->color_ids[color];
-      printf("choosing color by most constrained. first is %s%c%s.\n",
-             set_color_str(id),
-             color_dict[id].input_char,
-             reset_color_str());
+      printf("will choose color by most constrained, starting with %s.\n",
+             color_name_char(info, color));
     } else {
-      printf("color order: ");
+      printf("will choose colors in order: ");
       for (size_t i=0; i<info->num_colors; ++i) {
         int color = info->color_order[i];
-        int id = info->color_ids[color];
-        char i = color_dict[id].input_char;
-        char d = color_dict[id].display_char;
-        printf("%s%c%s",
-               set_color_str(id),
-               g_options.display_color ? i : d,
-               reset_color_str());
+        printf("%s", color_name_char(info, color));
       }
       printf("\n");
     }
@@ -1118,6 +1135,7 @@ size_t game_build_regions(const game_info_t* info,
   size_t rcount = 0;
   
   memset(rlookup, 0xff, sizeof(rlookup));
+  memset(rmap, 0xff, MAX_CELLS);
 
   // 2nd pass to order regions
   for (size_t y=0; y<info->size; ++y) {
@@ -1170,14 +1188,16 @@ void _game_regions_add_color(const game_info_t* info,
   
 }
 
+//////////////////////////////////////////////////////////////////////
+// Check for dead-end regions of freespace where there is no way to
+// put an active path into and out of it. Any freespace node which
+// has only one free neighbor represents such a dead end. For the
+// purposes of this check, cur and goal positions count as "free".
+
 int game_regions_deadends(const game_info_t* info,
                           const game_state_t* state,
                           size_t rcount,
                           const uint8_t rmap[MAX_CELLS]) {
-
-  // Check for fingers: any free cell must have more than one free
-  // neighbor. (note that uncompleted start/goal count as free in this
-  // case)
 
   for (size_t y=0; y<info->size; ++y) {
     for (size_t x=0; x<info->size; ++x) {
@@ -1680,6 +1700,39 @@ void game_animate_solution(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
+// Perform diagnostics on the given node
+
+void game_diagnose(const game_info_t* info,
+                   const tree_node_t* node) {
+
+  printf("node has cost to come %'g and cost to go %'g\n",
+         node->cost_to_come, node->cost_to_go);
+
+  if (node->state.last_color < info->num_colors)  {
+    printf("last color moved was %s\n",
+           color_name_char(info, node->state.last_color));
+
+  } else {
+    printf("no moves yet?\n");
+  }
+
+  printf("game state:\n\n");
+
+  game_print(info, &node->state);
+
+  uint8_t rmap[MAX_CELLS];
+
+  printf("\ngame regions:\n\n");
+  
+  size_t rcount = game_build_regions(info, &node->state, rmap);
+  game_print_regions(info, &node->state, rmap);
+
+  printf("\n");
+
+  
+}
+
+//////////////////////////////////////////////////////////////////////
 // Peforms A* or BFS search
 
 void game_search(const game_info_t* info,
@@ -1798,7 +1851,7 @@ void game_search(const game_info_t* info,
     if (result == SEARCH_SUCCESS) {
       result_char = 's';
     } else if (result == SEARCH_FULL) {
-      result_char = 'l';
+      result_char = 'f';
     } else {
       result_char = 'u';
     }
@@ -1848,14 +1901,14 @@ void game_search(const game_info_t* info,
 
     } else if (result == SEARCH_FULL && g_options.display_diagnose) {
 
-      printf("here's the lowest cost thing on the queue:\n\n");
+      printf("here's the lowest cost thing on the queue:\n");
 
-      game_print(info, &queue_peek(&q)->state);
+      game_diagnose(info, queue_peek(&q));
 
-      printf("\nand here's the last node allocated:\n\n");
+      printf("\nand here's the last node allocated:\n");
 
-      game_print(info, &storage.start[storage.count-1].state);
-    
+      game_diagnose(info, storage.start+storage.count-1);
+      
     }
 
   }
@@ -1888,12 +1941,12 @@ void usage(FILE* fp, int exitcode) {
           "  -a, --noautosort        Disable auto-sort of color order\n"
           "  -o, --order ORDER       Set color order on command line\n"
           "  -r, --randomize         Shuffle order of colors before solving\n"
-          "  -c, --constrained       Choose in order of most constrained\n"
+          "  -c, --constrained       Order colors by most constrained first\n"
           "\n"
           "Search options:\n\n"
           "  -b, --bfs               Run breadth-first search\n"
-          "  -n, --max-nodes NUM     Restruct storage to NUM nodes\n"
-          "  -m, --max-storage NUM   Restrict storage to NUM MB (default %'g)\n"
+          "  -n, --max-nodes N       Restrict storage to N nodes\n"
+          "  -m, --max-storage N     Restrict storage to N MB (default %'g)\n"
           "\n"
           "Help:\n\n"
           "  -h, --help              See this help text\n\n",
