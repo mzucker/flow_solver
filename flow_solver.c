@@ -1788,7 +1788,7 @@ void usage(FILE* fp, int exitcode) {
           "  -s, --stranded          Disable stranded checking\n"
           "  -d, --deadends          Disable dead-end checking\n"
           "  -c, --constrained       Select next move by most constrained color\n"
-          "  -e, --explore           Don't penalize exploration (move into freespace)\n"
+          "  -e, --noexplore         Penalize exploration (move into freespace)\n"
           "  -S, --shuffle           Shuffle order of colors before solving\n"
           "  -o, --order ORDER       Set color order on command line\n"
           "  -b, --bfs               Run breadth-first search\n"
@@ -1846,8 +1846,8 @@ int parse_options(int argc, char** argv) {
       g_options.check_deadends = 0;
     } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
       g_options.most_constrained_color = 1; 
-    } else if (!strcmp(opt, "-e") || !strcmp(opt, "--explore")) {
-      g_options.penalize_exploration = 0;
+    } else if (!strcmp(opt, "-e") || !strcmp(opt, "--noexplore")) {
+      g_options.penalize_exploration = 1;
     } else if (!strcmp(opt, "-S") || !strcmp(opt, "--shuffle")) {
       g_options.shuffle_colors = 1;
     } else if (!strcmp(opt, "-o") || !strcmp(opt, "--order")) {
@@ -1916,7 +1916,7 @@ int main(int argc, char** argv) {
   g_options.search_astar_like = 1;
   g_options.check_stranded = 1;
   g_options.check_deadends = 1;
-  g_options.penalize_exploration = 1;
+  g_options.penalize_exploration = 0;
   g_options.user_color_order = NULL;
   g_options.max_storage_mb = 512;
 
