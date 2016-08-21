@@ -87,16 +87,19 @@ typedef struct color_lookup_struct {
 
 // Options for this program
 typedef struct options_struct {
-  int animate_solution;
-  int color_display;
-  int prevent_self_touching;
-  int most_constrained_color;
-  int shuffle_colors;
+  int display_animate;
+  int display_color;
+  int cost_check_touch;
+  int cost_check_stranded;
+  int cost_check_deadends;
+  int cost_penalize_exploration;
+  
+  int order_autosort_colors;
+  int order_most_constrained;
+  int order_random;
+  const char* order_user;
+  
   int search_astar_like;
-  int check_stranded;
-  int check_deadends;
-  int penalize_exploration;
-  const char* user_color_order;
   double max_storage_mb;
 } options_t;
 
@@ -285,7 +288,7 @@ int terminal_has_color() {
 // Emit color string for index into color_dict table above
 
 const char* set_color_str(int id) {
-  if (g_options.color_display) {
+  if (g_options.display_color) {
     static char buf[256];
     snprintf(buf, 256, "\033[30;%dm", color_dict[id].ansi_code);
     return buf; 
@@ -298,7 +301,7 @@ const char* set_color_str(int id) {
 // Reset terminal color to default
 
 const char* reset_color_str() {
-  if (g_options.color_display) {
+  if (g_options.display_color) {
     return "\033[0m";
   } else {
     return "";
@@ -309,7 +312,7 @@ const char* reset_color_str() {
 // Clear screen and set cursor pos to 0,0
 
 const char* unprint_board(const game_info_t* info) {
-  if (g_options.color_display) {
+  if (g_options.display_color) {
     static char buf[256];
     snprintf(buf, 256, "\033[%zuA\033[%zuD",
              info->size+2, info->size+2);
@@ -487,7 +490,7 @@ int game_can_move(const game_info_t* info,
     return 0;
   }
 
-  if (g_options.prevent_self_touching) {
+  if (g_options.cost_check_touch) {
     
     pos_t neighbors[4];
     int num_neighbors = get_neighbors(info, new_x, new_y, neighbors);
@@ -548,13 +551,13 @@ void game_print(const game_info_t* info,
       case TYPE_PATH:
         printf("%s%c%s",
                set_color_str(id),
-               g_options.color_display ? DIR_CHARS[dir] : c,
+               g_options.display_color ? DIR_CHARS[dir] : c,
                reset_color_str());
         break;
       default:
         printf("%s%c%s",
                set_color_str(info->color_ids[color]),
-               g_options.color_display ? (type == TYPE_INIT ? 'o' : 'O') : c,
+               g_options.display_color ? (type == TYPE_INIT ? 'o' : 'O') : c,
                reset_color_str());
       }
     }
@@ -626,7 +629,7 @@ double game_make_move(const game_info_t* info,
 
     if (num_free == 1) {
       action_cost = 0;
-    } else if (g_options.penalize_exploration && num_free == 2) {
+    } else if (g_options.cost_penalize_exploration && num_free == 2) {
       action_cost = 2;
     }
 
@@ -801,7 +804,45 @@ int color_features_compare(const void* vptr_a, const void* vptr_b) {
 void game_order_colors(game_info_t* info,
                        game_state_t* state) {
 
-  if (1) {
+  if (g_options.order_user) {
+
+    uint8_t in_use[MAX_COLORS];
+    memset(in_use, 0, MAX_COLORS);
+
+    size_t k;
+    
+    for (k=0; k<info->num_colors && g_options.order_user[k]; ++k) {
+
+      char c = g_options.order_user[k];
+
+      for (size_t color=0; color<info->num_colors; ++color) {
+        int id = info->color_ids[color];
+        if (c == color_dict[id].input_char) {
+          if (in_use[color]) {
+            fprintf(stderr, "error ordering colors: %c already used\n", c);
+            exit(1);
+          }
+          in_use[color] = 1;
+          info->color_order[k] = color;
+          c = 0;
+          break;
+        }
+      }
+
+      if (c) {
+        fprintf(stderr, "error ordering colors: %c not in puzzle\n", c);
+        exit(1);
+      }
+
+    }
+
+    for (size_t color=0; color<info->num_colors; ++color) {
+      if (!in_use[color]) {
+        info->color_order[k++] = color;
+      }
+    }
+    
+  } else if (g_options.order_autosort_colors) {
 
     color_features_t cf[MAX_COLORS];
 
@@ -855,55 +896,14 @@ void game_order_colors(game_info_t* info,
       printf("color %s%c%s has cur wall dist=%d, "
              "goal wall dist=%d, cur-goal dist=%d\n",
              set_color_str(id),
-             g_options.color_display ? 'o' : d,
+             g_options.display_color ? 'o' : d,
              reset_color_str(),
              cf[i].cur_wall_dist,
              cf[i].goal_wall_dist,
              cf[i].cur_goal_dist);
     }
 
-  }
-
-  if (g_options.user_color_order) {
-
-    uint8_t in_use[MAX_COLORS];
-    memset(in_use, 0, MAX_COLORS);
-
-    size_t k;
-    
-    for (k=0; k<info->num_colors && g_options.user_color_order[k]; ++k) {
-
-      char c = g_options.user_color_order[k];
-
-      for (size_t color=0; color<info->num_colors; ++color) {
-        int id = info->color_ids[color];
-        if (c == color_dict[id].input_char) {
-          if (in_use[color]) {
-            fprintf(stderr, "error ordering colors: %c already used\n", c);
-            exit(1);
-          }
-          in_use[color] = 1;
-          info->color_order[k] = color;
-          c = 0;
-          break;
-        }
-      }
-
-      if (c) {
-        fprintf(stderr, "error ordering colors: %c not in puzzle\n", c);
-        exit(1);
-      }
-
-    }
-
-    for (size_t color=0; color<info->num_colors; ++color) {
-      if (!in_use[color]) {
-        info->color_order[k++] = color;
-      }
-    }
-    
-
-  } else if (g_options.shuffle_colors) {
+  } else if (g_options.order_random) {
 
     srand(time(NULL));
 
@@ -925,6 +925,7 @@ void game_order_colors(game_info_t* info,
            color_dict[id].input_char,
            reset_color_str());
   }
+
   printf("\n");
   
 
@@ -1573,7 +1574,7 @@ int game_next_move_color(const game_info_t* info,
     return state->last_color;
   }
 
-  if (g_options.most_constrained_color) {
+  if (g_options.order_most_constrained) {
 
     size_t best_color = -1;
     int best_free = 4;
@@ -1713,14 +1714,14 @@ void game_search(const game_info_t* info,
       
         }
 
-        if (g_options.check_stranded ||
-            g_options.check_deadends) {
+        if (g_options.cost_check_stranded ||
+            g_options.cost_check_deadends) {
 
           size_t rcount = game_build_regions(info, child_state, rmap);
 
-          if ( (g_options.check_stranded &&
+          if ( (g_options.cost_check_stranded &&
                 game_regions_stranded(info, child_state, rcount, rmap)) ||
-               (g_options.check_deadends &&
+               (g_options.cost_check_deadends &&
                 game_regions_deadends(info, child_state, rcount, rmap)) ) {
 
             node_storage_unalloc(&storage, child);
@@ -1740,7 +1741,7 @@ void game_search(const game_info_t* info,
 
   if (result == SEARCH_SUCCESS) {
     assert(solution_node);
-    if (!g_options.animate_solution) {
+    if (!g_options.display_animate) {
       printf("\n");
       game_print(info, &solution_node->state);
     } else {
@@ -1795,23 +1796,30 @@ void game_search(const game_info_t* info,
 void usage(FILE* fp, int exitcode) {
 
   fprintf(fp,
-          "usage: flow_solver [OPTIONS] BOARD.txt\n"
-          "\n"
-          "OPTIONS:\n"
-          "\n"
+          "usage: flow_solver [OPTIONS] BOARD.txt\n\n"
+          "Display options:\n\n"
           "  -A, --no-animation      Disable animating solution\n"
 #ifndef _WIN32          
           "  -C, --color             Use ANSI color even if TERM not set or not a tty\n"
-#endif          
-          "  -t, --touching          Disable path self-touch test\n"
+#endif
+          "\n"
+          "Cost/feasibility options:\n\n"
+          "  -t, --touch             Disable path self-touch test\n"
           "  -s, --stranded          Disable stranded checking\n"
           "  -d, --deadends          Disable dead-end checking\n"
-          "  -c, --constrained       Select next move by most constrained color\n"
           "  -e, --noexplore         Penalize exploration (move into freespace)\n"
-          "  -S, --shuffle           Shuffle order of colors before solving\n"
+          "\n"
+          "Color ordering options:\n\n"
+          "  -a, --noautosort        Disable auto-sort of color order\n"
           "  -o, --order ORDER       Set color order on command line\n"
+          "  -r, --randomize         Shuffle order of colors before solving\n"
+          "  -c, --constrained       Always pick most constrained color for next move\n"
+          "\n"
+          "Search options:\n\n"
           "  -b, --bfs               Run breadth-first search\n"
           "  -m, --max-storage NUM   Restrict storage to NUM MB (default %'g)\n"
+          "\n"
+          "Help:\n\n"
           "  -h, --help              See this help text\n\n",
           g_options.max_storage_mb);
 
@@ -1852,29 +1860,31 @@ int parse_options(int argc, char** argv) {
     const char* opt = argv[i];
     
     if (!strcmp(opt, "-A") || !strcmp(opt, "--no-animation")) {
-      g_options.animate_solution = 0;
+      g_options.display_animate = 0;
 #ifndef _WIN32      
     } else if (!strcmp(opt, "-C") || !strcmp(opt, "--color")) {
-      g_options.color_display = 1;
+      g_options.display_color = 1;
 #endif
-    } else if (!strcmp(opt, "-t") || !strcmp(opt, "--touching")) {
-      g_options.prevent_self_touching = 0;
+    } else if (!strcmp(opt, "-t") || !strcmp(opt, "--touch")) {
+      g_options.cost_check_touch = 0;
     } else if (!strcmp(opt, "-s") || !strcmp(opt, "--stranded")) {
-      g_options.check_stranded = 0;
+      g_options.cost_check_stranded = 0;
     } else if (!strcmp(opt, "-d") || !strcmp(opt, "--deadends")) {
-      g_options.check_deadends = 0;
-    } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
-      g_options.most_constrained_color = 1; 
+      g_options.cost_check_deadends = 0;
     } else if (!strcmp(opt, "-e") || !strcmp(opt, "--noexplore")) {
-      g_options.penalize_exploration = 1;
-    } else if (!strcmp(opt, "-S") || !strcmp(opt, "--shuffle")) {
-      g_options.shuffle_colors = 1;
+      g_options.cost_penalize_exploration = 1;
+    } else if (!strcmp(opt, "-a") || !strcmp(opt, "--noautosort")) {
+      g_options.order_autosort_colors = 0;
     } else if (!strcmp(opt, "-o") || !strcmp(opt, "--order")) {
       if (i+1 == argc) {
         fprintf(stderr, "-o, --order needs argument\n");
         usage(stderr, 1);
       }
-      g_options.user_color_order = argv[++i];
+      g_options.order_user = argv[++i];
+    } else if (!strcmp(opt, "-r") || !strcmp(opt, "--randomize")) {
+      g_options.order_random = 1;
+    } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
+      g_options.order_most_constrained = 1; 
     } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bfs")) {
       g_options.search_astar_like = 0;
     } else if (!strcmp(opt, "-m") || !strcmp(opt, "--max-storage")) {
@@ -1928,15 +1938,16 @@ int main(int argc, char** argv) {
 
   setlocale(LC_NUMERIC, "");
     
-  g_options.animate_solution = 1;
-  g_options.color_display = terminal_has_color();
-  g_options.prevent_self_touching = 1;
-  g_options.most_constrained_color = 0;
+  g_options.display_animate = 1;
+  g_options.display_color = terminal_has_color();
+  g_options.cost_check_touch = 1;
+  g_options.order_autosort_colors = 1;
+  g_options.order_most_constrained = 0;
   g_options.search_astar_like = 1;
-  g_options.check_stranded = 1;
-  g_options.check_deadends = 1;
-  g_options.penalize_exploration = 0;
-  g_options.user_color_order = NULL;
+  g_options.cost_check_stranded = 1;
+  g_options.cost_check_deadends = 1;
+  g_options.cost_penalize_exploration = 0;
+  g_options.order_user = NULL;
   g_options.max_storage_mb = 512;
 
   int input_arg = parse_options(argc, argv);
