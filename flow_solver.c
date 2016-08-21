@@ -109,6 +109,7 @@ typedef struct options_struct {
   
   int         order_autosort_colors;
   int         order_most_constrained;
+  int         order_forced_first;
   int         order_random;
   const char* order_user;
   
@@ -232,12 +233,12 @@ const char* BLOCK_CHAR = "#";
 // For visualizing cardinal directions ordered by the enum above.
 const char DIR_CHARS[4] = "<>^v";
 
-// x, y coordinates for each direction
-const int DIR_DELTA[4][2] = {
-  { -1, 0 },
-  {  1, 0 },
-  {  0, -1 },
-  {  0, 1 }
+// x, y, pos coordinates for each direction
+const int DIR_DELTA[4][3] = {
+  { -1, 0, -1 },
+  {  1, 0,  1 },
+  {  0, -1, -16 },
+  {  0, 1, 16 }
 };
 
 // Look-up table mapping characters in puzzle definitions to ANSI
@@ -346,28 +347,6 @@ const char* reset_color_str() {
   } else {
     return "";
   }
-}
-
-//////////////////////////////////////////////////////////////////////
-// For displaying a color nicely
-
-const char* color_name_char(const game_info_t* info,
-                            int color) {
-
-  int id = info->color_ids[color];
-  char i = color_dict[id].input_char;
-  char d = color_dict[id].display_char;
-
-  static char buf[1024];
-
-  snprintf(buf, 1024, "%s%c%s",
-           set_color_str(id),
-           g_options.display_color ? i : d,
-           reset_color_str());
-
-  return buf;
-  
-
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -518,6 +497,65 @@ uint8_t cell_get_color(cell_t c) {
 }
 
 //////////////////////////////////////////////////////////////////////
+// For displaying a color nicely
+
+const char* color_name_str(const game_info_t* info,
+                            int color) {
+
+  int id = info->color_ids[color];
+  char i = color_dict[id].input_char;
+  char d = color_dict[id].display_char;
+
+  static char buf[1024];
+
+  snprintf(buf, 1024, "%s%c%s",
+           set_color_str(id),
+           g_options.display_color ? i : d,
+           reset_color_str());
+
+  return buf;
+  
+
+}
+
+//////////////////////////////////////////////////////////////////////
+// For displaying a cell nicely
+
+const char* color_cell_str(const game_info_t* info,
+                           cell_t cell) {
+
+  int type = cell_get_type(cell);
+  int color = cell_get_color(cell);
+  int dir = cell_get_direction(cell);
+  
+  int id = info->color_ids[color];
+  
+  char c = color_dict[id].display_char;
+
+  static char buf[1024];
+  
+  switch (type) {
+  case TYPE_FREE:
+    snprintf(buf, 1024, " ");
+    break;
+  case TYPE_PATH:
+    snprintf(buf, 1024, "%s%c%s",
+             set_color_str(id),
+             g_options.display_color ? DIR_CHARS[dir] : c,
+             reset_color_str());
+    break;
+  default:
+    snprintf(buf, 1024, "%s%c%s",
+             set_color_str(info->color_ids[color]),
+             g_options.display_color ? (type == TYPE_INIT ? 'o' : 'O') : c,
+             reset_color_str());
+  }
+
+  return buf;
+
+}
+  
+//////////////////////////////////////////////////////////////////////
 // Consider whether the given move is valid.
 
 int game_can_move(const game_info_t* info,
@@ -601,27 +639,7 @@ void game_print(const game_info_t* info,
     printf("%s", BLOCK_CHAR);
     for (size_t x=0; x<info->size; ++x) {
       cell_t cell = state->cells[pos_from_coords(x, y)];
-      int type = cell_get_type(cell);
-      int color = cell_get_color(cell);
-      int dir = cell_get_direction(cell);
-      int id = info->color_ids[color];
-      char c = color_dict[id].display_char;
-      switch (type) {
-      case TYPE_FREE:
-        printf(" ");
-        break;
-      case TYPE_PATH:
-        printf("%s%c%s",
-               set_color_str(id),
-               g_options.display_color ? DIR_CHARS[dir] : c,
-               reset_color_str());
-        break;
-      default:
-        printf("%s%c%s",
-               set_color_str(info->color_ids[color]),
-               g_options.display_color ? (type == TYPE_INIT ? 'o' : 'O') : c,
-               reset_color_str());
-      }
+      printf("%s", color_cell_str(info, cell));
     }
     printf("%s\n", BLOCK_CHAR);
   }
@@ -1032,12 +1050,12 @@ void game_order_colors(game_info_t* info,
     if (g_options.order_most_constrained) {
       int color = game_next_move_color(info, state);
       printf("will choose color by most constrained, starting with %s.\n",
-             color_name_char(info, color));
+             color_name_str(info, color));
     } else {
       printf("will choose colors in order: ");
       for (size_t i=0; i<info->num_colors; ++i) {
         int color = info->color_order[i];
-        printf("%s", color_name_char(info, color));
+        printf("%s", color_name_str(info, color));
       }
       printf("\n");
     }
@@ -1356,6 +1374,91 @@ void game_print_regions(const game_info_t* info,
   
 }
 
+//////////////////////////////////////////////////////////////////////
+// 
+
+int game_is_forced(const game_info_t* info,
+                   const game_state_t* state,
+                   int color,
+                   pos_t pos) {
+
+  pos_t neighbors[4];
+  
+  int num_neighbors = pos_get_neighbors(info, pos, neighbors);
+  int num_free = 0;
+  int num_other_endpoints = 0;
+
+  for (int n=0; n<num_neighbors; ++n) {
+    if (neighbors[n] == state->cur_pos[color]) {
+      continue;
+    } else if (state->cells[neighbors[n]] == 0) {
+      ++num_free;
+    } else {
+      for (size_t other_color=0; other_color<info->num_colors; ++other_color) {
+        if (other_color == color) { continue; }
+        if (state->completed & (1 << other_color)) { continue; }
+        if (neighbors[n] == state->cur_pos[other_color] ||
+            neighbors[n] == info->goal_pos[other_color]) {
+          ++num_other_endpoints;
+        }
+      }
+    } 
+  } // for each neighbor
+
+  return (num_free == 1 && num_other_endpoints == 0);
+
+}
+                                         
+
+//////////////////////////////////////////////////////////////////////
+//
+
+int game_find_forced(const game_info_t* info,
+                     const game_state_t* state,
+                     int* forced_color,
+                     int* forced_dir) {
+
+  // if there is a freespace next to an endpoint and the freespace has
+  // only one free neighbor, we must extend the endpoint into it.
+
+  for (size_t color=0; color<info->num_colors; ++color) {
+
+    if (state->completed & (1 << color)) { continue; }
+
+    pos_t neighbors[4];
+    int num_neighbors = pos_get_neighbors(info,
+                                          state->cur_pos[color],
+                                          neighbors);
+
+    for (int n=0; n<num_neighbors; ++n) {
+
+      pos_t neighbor_pos = neighbors[n];
+
+      if (state->cells[neighbor_pos] == 0 &&
+          game_is_forced(info, state, color, neighbor_pos)) {
+
+        int delta = neighbor_pos - state->cur_pos[color];
+
+        int dir;
+        for (dir=0; dir<4; ++dir) {
+          if (DIR_DELTA[dir][2] == delta) {
+            break;
+          }
+        }
+
+        *forced_color = color;
+        *forced_dir = dir;
+
+        return 1;
+
+      }
+
+    }
+  }
+
+  return 0;
+
+}
 
 //////////////////////////////////////////////////////////////////////
 // Create simple linear allocator for search nodes.
@@ -1705,30 +1808,70 @@ void game_animate_solution(const game_info_t* info,
 void game_diagnose(const game_info_t* info,
                    const tree_node_t* node) {
 
+  printf("\n###################################"
+         "###################################\n\n");
+
   printf("node has cost to come %'g and cost to go %'g\n",
          node->cost_to_come, node->cost_to_go);
 
   if (node->state.last_color < info->num_colors)  {
     printf("last color moved was %s\n",
-           color_name_char(info, node->state.last_color));
+           color_name_str(info, node->state.last_color));
 
   } else {
     printf("no moves yet?\n");
   }
 
-  printf("game state:\n\n");
+  game_state_t state_copy = node->state;
 
-  game_print(info, &node->state);
+  int forced = 1;
 
-  uint8_t rmap[MAX_CELLS];
+  while (forced) {
 
-  printf("\ngame regions:\n\n");
+    printf("game state:\n\n");
+    game_print(info, &state_copy);
+    printf("\n");
+    
+    uint8_t rmap[MAX_CELLS];
+
+    size_t rcount = game_build_regions(info, &state_copy, rmap);
+    //printf("game regions:\n\n");
+    //game_print_regions(info, &state_copy, rmap);
+
+    if (game_regions_stranded(info, &state_copy, rcount, rmap)) {
+      printf("stranded -- state should be pruned!\n");
+      break;
+    }
+
+    if (game_regions_deadends(info, &state_copy, rcount, rmap)) {
+      printf("dead-ended -- state should be pruned!\n");
+      break;
+    }
+
+    int color, dir;
+    forced = game_find_forced(info, &state_copy, &color, &dir);
+    
+    if (forced) {
+
+      cell_t move = cell_create(TYPE_PATH, color, dir);
+
+      printf("color %s is forced to move %s!\n",
+             color_name_str(info, color),
+             color_cell_str(info, move));
+
+      if (!game_can_move(info, &state_copy, color, dir)) {
+        printf("...but it is not allowed -- state should be pruned!\n");
+        break;
+      }
+
+      game_make_move(info, &state_copy, color, dir);
+      
+    }
+    
+  }
   
-  size_t rcount = game_build_regions(info, &node->state, rmap);
-  game_print_regions(info, &node->state, rmap);
 
-  printf("\n");
-
+  
   
 }
 
@@ -1784,10 +1927,22 @@ void game_search(const game_info_t* info,
     assert(n);
 
     game_state_t* parent_state = &n->state;
+
+    
     
     int color = game_next_move_color(info, parent_state);
+    int num_dirs = 4;
+    int dirs[4] = { 0, 1, 2, 3 };
+    int forced = 0;
+
+    if (g_options.order_forced_first) {
+      forced = game_find_forced(info, parent_state, &color, dirs);
+      if (forced) { num_dirs = 1; }
+    }
       
-    for (int dir=0; dir<4; ++dir) {
+    for (int d=0; d<num_dirs; ++d) {
+
+      int dir = dirs[d];
 
       if (game_can_move(info, &n->state, color, dir)) {
           
@@ -1802,6 +1957,8 @@ void game_search(const game_info_t* info,
         }
 
         size_t action_cost = game_make_move(info, &child->state, color, dir);
+        if (forced) { action_cost = 0; }
+        
         node_update_costs(info, child, action_cost);
 
         const game_state_t* child_state = &child->state;
@@ -1926,7 +2083,7 @@ void usage(FILE* fp, int exitcode) {
           "  -q, --quiet             Reduce output\n"
           "  -D, --diagnose          Display nodes when storage exceeded\n"
           "  -A, --no-animation      Disable animating solution\n"
-          "  -f, --fast              Speed up animation 8x\n"
+          "  -F, --fast              Speed up animation 8x\n"
 #ifndef _WIN32          
           "  -C, --color             Force use of ANSI color\n"
 #endif
@@ -1941,7 +2098,8 @@ void usage(FILE* fp, int exitcode) {
           "  -a, --noautosort        Disable auto-sort of color order\n"
           "  -o, --order ORDER       Set color order on command line\n"
           "  -r, --randomize         Shuffle order of colors before solving\n"
-          "  -c, --constrained       Order colors by most constrained first\n"
+          "  -f, --forced            Disable ordering forced moved first\n"
+          "  -c, --constrained       Disable order by most constrained\n"
           "\n"
           "Search options:\n\n"
           "  -b, --bfs               Run breadth-first search\n"
@@ -1994,7 +2152,7 @@ size_t parse_options(int argc, char** argv, const char** input_files) {
       g_options.display_diagnose = 1;
     } else if (!strcmp(opt, "-A") || !strcmp(opt, "--no-animation")) {
       g_options.display_animate = 0;
-    } else if (!strcmp(opt, "-f") || !strcmp(opt, "--fast")) {
+    } else if (!strcmp(opt, "-F") || !strcmp(opt, "--fast")) {
       g_options.display_speedup = 8.0;
 #ifndef _WIN32      
     } else if (!strcmp(opt, "-C") || !strcmp(opt, "--color")) {
@@ -2018,8 +2176,10 @@ size_t parse_options(int argc, char** argv, const char** input_files) {
       g_options.order_user = argv[++i];
     } else if (!strcmp(opt, "-r") || !strcmp(opt, "--randomize")) {
       g_options.order_random = 1;
+    } else if (!strcmp(opt, "-f") || !strcmp(opt, "--forced")) {
+      g_options.order_forced_first = 0;
     } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
-      g_options.order_most_constrained = 1; 
+      g_options.order_most_constrained = 0; 
     } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bfs")) {
       g_options.search_astar_like = 0;
     } else if (!strcmp(opt, "-n") || !strcmp(opt, "--max-nodes")) {
@@ -2092,7 +2252,8 @@ int main(int argc, char** argv) {
   g_options.display_speedup = 1.0;
   g_options.cost_check_touch = 1;
   g_options.order_autosort_colors = 1;
-  g_options.order_most_constrained = 0;
+  g_options.order_most_constrained = 1;
+  g_options.order_forced_first = 1;
   g_options.search_astar_like = 1;
   g_options.cost_check_stranded = 1;
   g_options.cost_check_deadends = 1;
