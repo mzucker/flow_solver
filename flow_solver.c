@@ -1731,6 +1731,8 @@ int main(int argc, char** argv) {
   const char* input_file = argv[input_arg];
   
   queue_setup();
+
+  printf("sizeof(game_state_t) = %zu\n", sizeof(game_state_t));
   
   game_info_t  info;
   game_state_t state;
