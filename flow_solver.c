@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <assert.h>
 #include <math.h>
+#include <time.h>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -90,8 +91,10 @@ typedef struct options_struct {
   int color_display;
   int prevent_self_touching;
   int most_constrained_color;
-  int check_freespace_regions;
+  int shuffle_colors;
   int search_astar_like;
+  int check_freespace_regions;
+  int penalize_exploration;
   double max_storage_mb;
 } options_t;
 
@@ -105,6 +108,9 @@ typedef struct game_info_struct {
 
   // Index in color_dict table of codes
   int    color_ids[MAX_COLORS];
+
+  // Color order
+  int    color_order[MAX_COLORS];
 
   // Length/width of game board
   size_t size;
@@ -219,9 +225,9 @@ const color_lookup color_dict[MAX_COLORS] = {
   { 'A', '=', 100 }, // gray
   { 'W', '~', 107 }, // white
   { 'g', '.', 102 }, // bright green
-  { 'w', '-', 47 }, // beige
-  { 'b', '"', 44 }, // dark blue
-  { 'c', ',', 46 }, // dark cyan
+  { 'w', '-',  47 }, // beige
+  { 'b', '"',  44 }, // dark blue
+  { 'c', ',',  46 }, // dark cyan
 };
 
 // Global options struct gets setup during main
@@ -580,8 +586,8 @@ double game_make_move(const game_info_t* info,
 
     if (num_free == 1) {
       action_cost = 0;
-    } else if (num_free == 2) {
-      action_cost = 1;
+    } else if (g_options.penalize_exploration && num_free == 2) {
+      action_cost = 2;
     }
 
   }
@@ -680,7 +686,7 @@ void game_read(const char* filename,
           }
 
           info->color_ids[color] = id;
-          
+          info->color_order[color] = color;
           
           ++info->num_colors;
           color_lookup[color] = c;
@@ -725,6 +731,80 @@ void game_read(const char* filename,
 
 }
 
+//////////////////////////////////////////////////////////////////////
+// Shuffle colors
+
+int hcolor_compare(const void* a, const void *b) {
+
+  int da = ((const int*)a)[1];
+  int db = ((const int*)b)[1];
+
+  return da < db ? -1 : da > db ? 1 : 0;
+
+}
+
+void game_order_colors(game_info_t* info,
+                       const game_state_t* state) {
+
+  if (0) {
+
+    int hcolor[MAX_COLORS][2];
+
+    for (size_t color=0; color<info->num_colors; ++color) {
+      int cur_x, cur_y, goal_x, goal_y;
+      pos_get_coords(state->cur_pos[color], &cur_x, &cur_y);
+      pos_get_coords(info->goal_pos[color], &goal_x, &goal_y);
+      int dx = abs(goal_x - cur_x);
+      int dy = abs(goal_y - cur_y);
+      hcolor[color][0] = color;
+      hcolor[color][1] = dx + dy;
+    }
+
+    mergesort(hcolor, info->num_colors, 2*sizeof(int),
+              hcolor_compare);
+
+    for (size_t i=0; i<info->num_colors; ++i) {
+      info->color_order[i] = hcolor[i][0];
+    }
+    
+    for (size_t i=0; i<info->num_colors; ++i) {
+      int color = hcolor[i][0];
+      int id = info->color_ids[color];
+      char d = color_dict[id].display_char;
+      printf("distance for %s%c%s is %d\n",
+             set_color_str(id),
+             g_options.color_display ? 'o' : d,
+             reset_color_str(), hcolor[i][1]);
+    }
+
+  } else if (g_options.shuffle_colors) {
+
+    srand(time(NULL));
+
+    for (size_t i=info->num_colors-1; i>0; --i) {
+      size_t j = rand() % (i+1);
+      int tmp = info->color_order[i];
+      info->color_order[i] = info->color_order[j];
+      info->color_order[j] = tmp;
+    }
+
+  }
+
+  printf("color order: ");
+  for (size_t i=0; i<info->num_colors; ++i) {
+    int color = info->color_order[i];
+    int id = info->color_ids[color];
+    char d = color_dict[id].display_char;
+    printf("%s%c%s",
+           set_color_str(id),
+           g_options.color_display ? 'o' : d,
+           reset_color_str());
+  }
+  printf("\n");
+  
+
+
+}
 
 //////////////////////////////////////////////////////////////////////
 // This and other connected component analysis functions from
@@ -1310,40 +1390,49 @@ void node_update_costs(const game_info_t* info,
 int game_next_move_color(const game_info_t* info,
                          const game_state_t* state) {
 
-  size_t best_color = -1;
-  int best_free = 4;
+  if (g_options.most_constrained_color) {
 
-  for (size_t color=0; color<info->num_colors; ++color) {
+    size_t best_color = -1;
+    int best_free = 4;
+    
+    for (size_t i=0; i<info->num_colors; ++i) {
 
-    if (state->completed & (1 << color)) { continue; }
-
-    if (g_options.most_constrained_color) {
+      int color = info->color_order[i];
+      if (state->completed & (1 << color)) { continue; }
 
       pos_t neighbors[4];
-
-      int num_neighbors = pos_get_neighbors(info, state->cur_pos[color], neighbors);
+        
+      int num_neighbors = pos_get_neighbors(info, state->cur_pos[color],
+                                            neighbors);
       int num_free = 0;
-
+        
       for (int n=0; n<num_neighbors; ++n) {
         if (state->cells[neighbors[n]] == 0) { ++num_free; }
       }
-
+        
       if (num_free < best_free) {
         best_free = num_free;
         best_color = color;
       }
 
-    } else {
-
-      return color;
-
     }
+
+    assert(best_color < info->num_colors);
+
+    return best_color;
     
-  }
+  } else {
 
-  assert(best_color < info->num_colors);
+    for (size_t i=0; i<info->num_colors; ++i) {
+      int color = info->color_order[i];
+      if (state->completed & (1 << color)) { continue; }
+      return color;
+    }
 
-  return best_color;
+    assert(0 && "unreachable code");
+    return -1;
+    
+  } 
 
 }
 
@@ -1469,7 +1558,6 @@ void game_search(const game_info_t* info,
       delay_seconds(1.0);
       game_animate_solution(info, solution_node);
     }
-    printf("\n");
   }  
 
   const char* result_str;
@@ -1484,7 +1572,7 @@ void game_search(const game_info_t* info,
 
   double storage_mb = (storage.count * (double)sizeof(tree_node_t) / MEGABYTE);
 
-  printf("search %s after %'zu nodes (%'g MB)\n",
+  printf("\nsearch %s after %'zu nodes (%'g MB)\n",
          result_str,
          storage.count, storage_mb);
 
@@ -1517,6 +1605,8 @@ void usage(FILE* fp, int exitcode) {
           "  -s, --noself            Disable self-touch test\n"
           "  -r, --noregions         Disable freespace region analysis\n"
           "  -c, --constrained       Select next move by most constrained color\n"
+          "  -e, --explore           Don't penalize exploration (move into freespace)\n"
+          "  -S, --shuffle           Shuffle order of colors before solving\n"
           "  -b, --bfs               Run breadth-first search\n"
           "  -m, --max-storage NUM   Restrict storage to NUM MB (default %'g)\n"
           "  -h, --help              See this help text\n\n",
@@ -1570,6 +1660,10 @@ int parse_options(int argc, char** argv) {
       g_options.check_freespace_regions = 0; 
     } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
       g_options.most_constrained_color = 1; 
+    } else if (!strcmp(opt, "-e") || !strcmp(opt, "--explore")) {
+      g_options.penalize_exploration = 1;
+    } else if (!strcmp(opt, "-S") || !strcmp(opt, "--shuffle")) {
+      g_options.shuffle_colors = 1;
     } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bfs")) {
       g_options.search_astar_like = 0;
     } else if (!strcmp(opt, "-m") || !strcmp(opt, "--max-storage")) {
@@ -1626,9 +1720,10 @@ int main(int argc, char** argv) {
   g_options.animate_solution = 1;
   g_options.color_display = terminal_has_color();
   g_options.prevent_self_touching = 1;
-  g_options.check_freespace_regions = 1;
   g_options.most_constrained_color = 0;
   g_options.search_astar_like = 1;
+  g_options.check_freespace_regions = 1;
+  g_options.penalize_exploration = 1;
   g_options.max_storage_mb = 512;
 
   int input_arg = parse_options(argc, argv);
@@ -1641,6 +1736,7 @@ int main(int argc, char** argv) {
   game_state_t state;
   
   game_read(input_file, &info, &state);
+  game_order_colors(&info, &state);
   game_search(&info, &state);
 
   return 0;
