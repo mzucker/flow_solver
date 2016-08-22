@@ -1,14 +1,14 @@
-       CCCCCCC
-       C     C
-       C     C
-  CCCCCC     C
-             C
-             C
-             C
-             C
-             C
-             C
-             C
-       CC    C
-        C    C
-        CCCCCC
+GGGGGMmCCCCCCC
+GMMMMMmCOOOOOC
+GmmmmmmCYRRROC
+GmCCCCCCYYYROC
+GmmmmPPPPPYROC
+GAAAmPOOOPYROC
+GGGGmPOBOPYROC
+WWWGmPOBOPYYOC
+WmWGmPOBOPPPOC
+WmWGmPOBOOOPOC
+WmWGmPggggOPOC
+WmWGmPgCCgOOOC
+WmmmmPPWCggggC
+WWWWWWWWCCCCCC

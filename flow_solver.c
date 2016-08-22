@@ -2189,14 +2189,19 @@ void game_search(const game_info_t* info,
             break;
           }
         }
-        if (hint_pos) {
+        if (hint_pos != INVALID_POS) {
           int dir = dir_from_pos(pos, hint_pos, endpoint);
           dirs[0] = dir;
           num_dirs = 1;
           used_hint = 1;
-
+          int hint_x, hint_y;
+          pos_get_coords(hint_pos, &hint_x, &hint_y);
+          /*
           game_print(info, parent_state);
-          printf("hint says to move %s\n\n", color_cell_str(info, cell_create(TYPE_PATH, color, dir)));
+          printf("hint says to move %s into %d, %d\n",
+                 color_cell_str(info, cell_create(TYPE_PATH, color, dir)),
+                 hint_x, hint_y);
+          */
         }
       }
     }
@@ -2282,7 +2287,7 @@ void game_search(const game_info_t* info,
           
         queue_enqueue(&q, child);
 
-      } // if can move
+      } // if can move 
 
     } // for each dir
 
@@ -2511,6 +2516,7 @@ size_t parse_options(int argc, char** argv,
     } else if (!strcmp(opt, "-h") || !strcmp(opt, "--help")) {
       usage(stdout, 0);
     } else if (!strcmp(opt, "-H") || !strcmp(opt, "--hint")) {
+      printf("GOT HINT OPT %s\n", opt);
       if (!num_inputs) {
         fprintf(stderr, "%s before any board specified\n", opt);
       } else if (i+1 == argc) {
@@ -2573,8 +2579,8 @@ int main(int argc, char** argv) {
   const char* input_files[argc];
   const char* hint_files[argc];
 
-  memset(input_files, 0, sizeof(input_files));
-  memset(input_files, 0, sizeof(hint_files));
+  memset(input_files, 0, argc * sizeof(const char*));
+  memset(hint_files,  0, argc * sizeof(const char*));
   
   size_t num_inputs = parse_options(argc, argv,
                                     input_files, hint_files);
@@ -2597,9 +2603,7 @@ int main(int argc, char** argv) {
   for (size_t i=0; i<num_inputs; ++i) {
 
     const char* input_file = input_files[i];
-
     const char* hint_file = hint_files[i];
-
 
     char input_file_padded[1024];
     snprintf(input_file_padded, 1024, "%-*s",
@@ -2612,9 +2616,9 @@ int main(int argc, char** argv) {
                "***********************************\n\n");
       }
 
+      printf("hint file = %p\n", hint_file);
 
       if (hint_file) {
-        fprintf(stderr, "warning: ignoring hint file %s for now\n", hint_file);
         if (!game_read_hint(&info, &state, hint_file, hint)) {
           hint_file = 0;
         } 
