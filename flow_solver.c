@@ -152,8 +152,8 @@ typedef struct game_state_struct {
   // How many free cells?
   uint8_t  num_free;
 
-  // Which was the last color to move?
-  uint8_t  last_color;
+  // Which was the last color / endpoint
+  cell_t  last_move;
 
   // Bitflag indicating whether each color has been completed or not
   // (cur_pos is adjacent to goal_pos).
@@ -721,7 +721,7 @@ double game_make_move(const game_info_t* info,
   state->cells[new_pos] = move;
   state->pos[color][endpoint] = new_pos;
   --state->num_free;
-  state->last_color = color;
+  state->last_move = cell_create(endpoint == 0 ? TYPE_INIT : TYPE_GOAL, color, dir);
 
   double action_cost = 1;
 
@@ -772,7 +772,7 @@ int game_read(const char* filename,
   
   memset(state->pos, 0xff, sizeof(state->pos));
 
-  state->last_color = -1;
+  state->last_move = 0;
 
   size_t y=0;
 
@@ -977,9 +977,11 @@ int game_next_move_color(const game_info_t* info,
 
   *endpoint_out = 0;
 
-  if (state->last_color < info->num_colors &&
-      !(state->completed & (1 << state->last_color))) {
-    return state->last_color;
+  size_t last_color = state->last_move ? cell_get_color(state->last_move) : MAX_COLORS;
+
+  if (last_color < info->num_colors &&
+      !(state->completed & (1 << last_color))) {
+    return last_color;
   }
 
   if (g_options.order_most_constrained) {
@@ -1929,7 +1931,7 @@ void game_animate_solution(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
-//
+// Return free if in bounds and unoccupied
 
 int game_is_free(const game_info_t* info,
                  const game_state_t* state,
@@ -1948,22 +1950,27 @@ int game_is_free(const game_info_t* info,
   
 }
 
+//////////////////////////////////////////////////////////////////////
+// This is a helper function used by game_check_bottleneck below.
 
 int game_check_chokepoint(const game_info_t* info,
                           const game_state_t* state,
-                          int orig_color, int dir,
+                          int color, int dir, int endpoint,
                           int x, int y) {
 
 
   pos_t pos = pos_from_coords(x, y);
 
+  // Make the proposed move.
   game_state_t state_copy = *state;
-  game_make_move(info, &state_copy, orig_color, dir, 0);
+  game_make_move(info, &state_copy, color, dir, endpoint);
 
+  // Build new region map
   uint8_t rmap[MAX_CELLS];
   size_t rcount = game_build_regions(info, &state_copy, rmap);
 
-  int result = game_regions_stranded(info, &state_copy, rcount, rmap, orig_color);
+  // See if we are stranded 
+  int result = game_regions_stranded(info, &state_copy, rcount, rmap, color);
 
   if (result) {
     return result;
@@ -1973,43 +1980,42 @@ int game_check_chokepoint(const game_info_t* info,
 
 }
 
+//////////////////////////////////////////////////////////////////////
+// If a recent move has just 
+
 int game_check_bottleneck(const game_info_t* info,
                           const game_state_t* state) {
 
 
-  for (size_t color=0; color<info->num_colors; ++color) {
+  size_t color = state->last_move ? cell_get_color(state->last_move) : MAX_COLORS;
 
-    int at_start = cell_get_type(state->cells[state->pos[color][0]]) == TYPE_INIT;
+  if (color >= info->num_colors) { return 0; }
+  int endpoint = (cell_get_type(state->last_move) == TYPE_INIT ? 0 : 1);
 
-    if (color == state->last_color || at_start) {
-
-      pos_t pos = state->pos[color][0];
+  pos_t pos = state->pos[color][endpoint];
   
-      int x0, y0;
-      pos_get_coords(pos, &x0, &y0);
+  int x0, y0;
+  pos_get_coords(pos, &x0, &y0);
 
-      for (int dir=0; dir<4; ++dir) {
+  for (int dir=0; dir<4; ++dir) {
 
-        int dx = DIR_DELTA[dir][0];
-        int dy = DIR_DELTA[dir][1];
+    int sign = (endpoint == 0 ? 1 : -1);
+    int dx = sign * DIR_DELTA[dir][0];
+    int dy = sign * DIR_DELTA[dir][1];
 
-        int x1 = x0 + dx;
-        int y1 = y0 + dy;
+    int x1 = x0 + dx;
+    int y1 = y0 + dy;
 
-        int x2 = x1 + dx;
-        int y2 = y1 + dy;
+    int x2 = x1 + dx;
+    int y2 = y1 + dy;
     
-        if (game_is_free(info, state, x1, y1) &&
-            !game_is_free(info, state, x2, y2)) {
+    if (game_is_free(info, state, x1, y1) &&
+        !game_is_free(info, state, x2, y2)) {
 
-          int r = game_check_chokepoint(info, state, color, dir, x1, y1);
+      int r = game_check_chokepoint(info, state, color, dir, endpoint, x1, y1);
 
-          if (r) { return r; }
+      if (r) { return r; }
       
-        }
-
-      }
-
     }
 
   }
@@ -2030,9 +2036,9 @@ void game_diagnostics(const game_info_t* info,
   printf("node has cost to come %'g and cost to go %'g\n",
          node->cost_to_come, node->cost_to_go);
 
-  if (node->state.last_color < info->num_colors)  {
-    printf("last color moved was %s\n",
-           color_name_str(info, node->state.last_color));
+  if (node->state.last_move) {
+    printf("last move was %s\n",
+           color_cell_str(info, node->state.last_move));
 
   } else {
     printf("no moves yet?\n");
