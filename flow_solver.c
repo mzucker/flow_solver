@@ -2672,6 +2672,7 @@ int main(int argc, char** argv) {
              boards, overall_elapsed, overall_nodes);
       
     } else {
+      
       printf("\n");
       for (int i=0; i<3; ++i) {
         printf("%*s%3d total %c %8.3f %8zu\n",
