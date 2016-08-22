@@ -2516,7 +2516,6 @@ size_t parse_options(int argc, char** argv,
     } else if (!strcmp(opt, "-h") || !strcmp(opt, "--help")) {
       usage(stdout, 0);
     } else if (!strcmp(opt, "-H") || !strcmp(opt, "--hint")) {
-      printf("GOT HINT OPT %s\n", opt);
       if (!num_inputs) {
         fprintf(stderr, "%s before any board specified\n", opt);
       } else if (i+1 == argc) {
@@ -2615,8 +2614,6 @@ int main(int argc, char** argv) {
         printf("\n***********************************"
                "***********************************\n\n");
       }
-
-      printf("hint file = %p\n", hint_file);
 
       if (hint_file) {
         if (!game_read_hint(&info, &state, hint_file, hint)) {
