@@ -2194,6 +2194,9 @@ void game_search(const game_info_t* info,
           dirs[0] = dir;
           num_dirs = 1;
           used_hint = 1;
+
+          game_print(info, parent_state);
+          printf("hint says to move %s\n\n", color_cell_str(info, cell_create(TYPE_PATH, color, dir)));
         }
       }
     }
