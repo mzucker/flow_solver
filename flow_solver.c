@@ -68,10 +68,10 @@ enum {
 
 // Search termination results
 enum {
-  SEARCH_ACTIVE = 0,
-  SEARCH_SUCCESS = 1,
-  SEARCH_UNREACHABLE = 2,
-  SEARCH_FULL = 3
+  SEARCH_SUCCESS = 0,
+  SEARCH_UNREACHABLE = 1,
+  SEARCH_FULL = 2,
+  SEARCH_IN_PROGRESS = 3,
 };
 
 // Represent the contents of a cell on the game board
@@ -224,6 +224,15 @@ int (*queue_empty)(const queue_t*) = 0;
 const tree_node_t* (*queue_peek)(const queue_t*) = 0;
 
 //////////////////////////////////////////////////////////////////////
+
+const char SEARCH_RESULT_CHARS[4] = "suf?";
+
+const char* SEARCH_RESULT_STRINGS[4] = {
+  "successful",
+  "out of memory",
+  "unsolvable",
+  "in progress"
+};
 
 const char* BLOCK_CHAR = "#";
 
@@ -2099,10 +2108,11 @@ void game_diagnostics(const game_info_t* info,
 //////////////////////////////////////////////////////////////////////
 // Peforms A* or BFS search
 
-void game_search(const game_info_t* info,
-                 const game_state_t* init_state,
-                 const uint8_t* hint,
-                 const char* input_filename) {
+int game_search(const game_info_t* info,
+                const game_state_t* init_state,
+                const uint8_t* hint,
+                double* elapsed_out,
+                size_t* nodes_out) {
 
   size_t max_nodes = g_options.search_max_nodes;
 
@@ -2131,14 +2141,14 @@ void game_search(const game_info_t* info,
   queue_t q = queue_create(max_nodes);
   queue_enqueue(&q, root);
 
-  int result = SEARCH_ACTIVE;
+  int result = SEARCH_IN_PROGRESS;
   const tree_node_t* solution_node = NULL;
 
   uint8_t rmap[MAX_CELLS];
 
   double start = now();
 
-  while (result == SEARCH_ACTIVE) {
+  while (result == SEARCH_IN_PROGRESS) {
 
     if (queue_empty(&q)) {
       result = SEARCH_UNREACHABLE;
@@ -2285,26 +2295,11 @@ void game_search(const game_info_t* info,
   } // while search active
 
   double elapsed = now() - start;
+  if (elapsed_out) { *elapsed_out = elapsed; }
+  if (nodes_out)   { *nodes_out = storage.count; }
+  
 
-  if (g_options.display_quiet) {
-
-    char result_char;
-
-    if (result == SEARCH_SUCCESS) {
-      result_char = 's';
-    } else if (result == SEARCH_FULL) {
-      result_char = 'f';
-    } else {
-      result_char = 'u';
-    }
-
-    printf("%s %c %8.3f %8zu\n",
-           input_filename,
-           result_char,
-           elapsed,
-           storage.count);
-
-  } else {
+  if (!g_options.display_quiet) {
   
     if (result == SEARCH_SUCCESS) {
       assert(solution_node);
@@ -2318,20 +2313,13 @@ void game_search(const game_info_t* info,
       }
     } 
 
-    const char* result_str;
 
-    if (result == SEARCH_SUCCESS) {
-      result_str = "successful";
-    } else if (result == SEARCH_FULL) {
-      result_str = "ran out of memory";
-    } else {
-      result_str = "unsolvable";
-    }
 
     double storage_mb = (storage.count * (double)sizeof(tree_node_t) / MEGABYTE);
 
     printf("\nsearch %s after %'.3f seconds and %'zu nodes (%'.2f MB)\n",
-           result_str, elapsed,
+           SEARCH_RESULT_STRINGS[result],
+           elapsed,
            storage.count, storage_mb);
 
     if (result == SEARCH_SUCCESS) {
@@ -2358,6 +2346,8 @@ void game_search(const game_info_t* info,
 
   node_storage_destroy(&storage);
   queue_destroy(&q);
+
+  return result;
   
 }
 
@@ -2378,17 +2368,19 @@ void usage(FILE* fp, int exitcode) {
           "  -t, --touch             Disable path self-touch test\n"
           "  -s, --stranded          Disable stranded checking\n"
           "  -d, --deadends          Disable dead-end checking\n"
-          "  -e, --noexplore         Penalize exploring away from walls\n"
+          "  -b, --bottlenecks       Disable bottleneck checking\n"
+          "  -e, --no-explore        Penalize exploring away from walls\n"
           "\n"
           "Color ordering options:\n\n"
-          "  -a, --noautosort        Disable auto-sort of color order\n"
+          "  -a, --no-autosort       Disable auto-sort of color order\n"
           "  -o, --order ORDER       Set color order on command line\n"
           "  -r, --randomize         Shuffle order of colors before solving\n"
           "  -f, --forced            Disable ordering forced moved first\n"
           "  -c, --constrained       Disable order by most constrained\n"
           "\n"
           "Search options:\n\n"
-          "  -b, --bfs               Run breadth-first search\n"
+          "  -O, --no-outside-in     Disable outside-in searching\n"
+          "  -B, --bfs               Run breadth-first search\n"
           "  -n, --max-nodes N       Restrict storage to N nodes\n"
           "  -m, --max-storage N     Restrict storage to N MB (default %'g)\n"
           "  -H, --hint HINTFILE     Provide hint for previous board.\n"
@@ -2453,9 +2445,11 @@ size_t parse_options(int argc, char** argv,
       g_options.cost_check_stranded = 0;
     } else if (!strcmp(opt, "-d") || !strcmp(opt, "--deadends")) {
       g_options.cost_check_deadends = 0;
-    } else if (!strcmp(opt, "-e") || !strcmp(opt, "--noexplore")) {
+    } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bottlenecks")) {
+      g_options.cost_check_bottlenecks = 0;
+    } else if (!strcmp(opt, "-e") || !strcmp(opt, "--no-explore")) {
       g_options.cost_penalize_exploration = 1;
-    } else if (!strcmp(opt, "-a") || !strcmp(opt, "--noautosort")) {
+    } else if (!strcmp(opt, "-a") || !strcmp(opt, "--no-autosort")) {
       g_options.order_autosort_colors = 0;
     } else if (!strcmp(opt, "-o") || !strcmp(opt, "--order")) {
       if (i+1 == argc) {
@@ -2468,8 +2462,10 @@ size_t parse_options(int argc, char** argv,
     } else if (!strcmp(opt, "-f") || !strcmp(opt, "--forced")) {
       g_options.order_forced_first = 0;
     } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
-      g_options.order_most_constrained = 0; 
-    } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bfs")) {
+      g_options.order_most_constrained = 0;
+    } else if (!strcmp(opt, "-O") || !strcmp(opt, "--no-outside-in")) {
+      g_options.search_outside_in = 0;
+    } else if (!strcmp(opt, "-B") || !strcmp(opt, "--bfs")) {
       g_options.search_astar_like = 0;
     } else if (!strcmp(opt, "-n") || !strcmp(opt, "--max-nodes")) {
       
@@ -2584,24 +2580,23 @@ int main(int argc, char** argv) {
   game_info_t  info;
   game_state_t state;
   pos_t hint[MAX_CELLS];
-
-  size_t max_width = 0;
+  
+  int max_width = 11;
 
   for (size_t i=0; i<num_inputs; ++i) {
-    size_t l = strlen(input_files[i]);
+    int l = strlen(input_files[i]);
     if (l > max_width) { max_width = l; }
   }
 
   int boards = 0;
+  double total_elapsed[3] = { 0, 0, 0 };
+  size_t total_nodes[3]   = { 0, 0, 0 };
+  int    total_count[3]   = { 0, 0, 0 };
   
   for (size_t i=0; i<num_inputs; ++i) {
 
     const char* input_file = input_files[i];
     const char* hint_file = hint_files[i];
-
-    char input_file_padded[1024];
-    snprintf(input_file_padded, 1024, "%-*s",
-             (int)max_width, input_file);
   
     if (game_read(input_file, &info, &state)) {
 
@@ -2626,11 +2621,76 @@ int main(int argc, char** argv) {
       }
       
       game_order_colors(&info, &state);
-      game_search(&info, &state, hint_file ? hint : 0, input_file_padded);
+
+      double elapsed;
+      size_t nodes;
+      
+      int result = game_search(&info, &state, hint_file ? hint : 0,
+                               &elapsed, &nodes);
+
+      assert( result >= 0 && result < 3 );
+
+      total_elapsed[result] += elapsed;
+      total_nodes[result] += nodes;
+      total_count[result] += 1;
+
+      if (g_options.display_quiet) {
+        
+        printf("%*s %c %8.3f %8zu\n",
+               max_width, input_file,
+               SEARCH_RESULT_CHARS[result],
+               elapsed, nodes);
+
+      }
       
     }
 
   }
+
+  if (boards > 1) {
+
+    double overall_elapsed = 0;
+    size_t overall_nodes = 0;
+
+    for (int i=0; i<3; ++i) {
+      overall_elapsed += total_elapsed[i];
+      overall_nodes += total_nodes[i];
+    }
+
+    if (!g_options.display_quiet) {
+
+      printf("\n***********************************"
+             "***********************************\n\n");
+
+      for (int i=0; i<3; ++i) {
+        printf("%'d %s searches took a total of %'.3f seconds and %'zu nodes\n",
+               total_count[i], SEARCH_RESULT_STRINGS[i],
+               total_elapsed[i], total_nodes[i]);
+      }
+
+      printf("\noverall, %'d searches took a total of %'.3f seconds and %'zu nodes\n",
+             boards, overall_elapsed, overall_nodes);
+      
+    } else {
+      printf("\n");
+      for (int i=0; i<3; ++i) {
+        printf("%*s%3d total %c %8.3f %8zu\n",
+               max_width-9, "",
+               total_count[i],
+               SEARCH_RESULT_CHARS[i],
+               total_elapsed[i],
+               total_nodes[i]);
+      }
+      printf("\n");
+      printf("%*s%3d overall %8.3f %8zu\n",
+             max_width-9, "",
+             boards,
+             overall_elapsed,
+             overall_nodes);
+    }
+    
+  }
+  
     
   return 0;
   
