@@ -692,7 +692,11 @@ double game_make_move(const game_info_t* info,
 
   // Make sure valid color
   assert(color < info->num_colors);
+  assert(endpoint == 0);
 
+  // Update the cell with the new cell value
+  cell_t move = cell_create(TYPE_PATH, color, dir);
+  
   // Get current x, y
   int cur_x, cur_y;
   pos_get_coords(state->pos[color][endpoint], &cur_x, &cur_y);
@@ -704,8 +708,8 @@ double game_make_move(const game_info_t* info,
   int new_y = cur_y + sign * DIR_DELTA[dir][1];
 
   // Make sure valid
-  assert( new_x >= 0 && new_x < info->size &&
-          new_y >= 0 && new_y < info->size );
+  assert( new_x >= 0 && new_x < (int)info->size &&
+          new_y >= 0 && new_y < (int)info->size );
 
   // Make position
   pos_t new_pos = pos_from_coords(new_x, new_y);
@@ -714,8 +718,6 @@ double game_make_move(const game_info_t* info,
   // Make sure it's empty
   assert( state->cells[new_pos] == 0 );
 
-  // Update the cell with the new cell value
-  cell_t move = cell_create(TYPE_PATH, color, dir);
 
   // Update cells and new pos
   state->cells[new_pos] = move;
@@ -1478,7 +1480,7 @@ void game_print_regions(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
-// 
+// Helper function for game_find_forced below.
 
 int game_is_forced(const game_info_t* info,
                    const game_state_t* state,
@@ -1514,7 +1516,8 @@ int game_is_forced(const game_info_t* info,
                                          
 
 //////////////////////////////////////////////////////////////////////
-//
+// Find a forced move. This could be optimized to not search all
+// colors all the time, maybe?
 
 int game_find_forced(const game_info_t* info,
                      const game_state_t* state,
@@ -1937,8 +1940,8 @@ int game_is_free(const game_info_t* info,
                  const game_state_t* state,
                  int x, int y) {
 
-  if (x >= 0 && x <= (int)info->size &&
-      y >= 0 && y <= (int)info->size) {
+  if (x >= 0 && x < (int)info->size &&
+      y >= 0 && y < (int)info->size) {
 
     return (state->cells[pos_from_coords(x,y)] == 0);
 
@@ -1986,7 +1989,11 @@ int game_check_chokepoint(const game_info_t* info,
 int game_check_bottleneck(const game_info_t* info,
                           const game_state_t* state) {
 
-
+  /*
+  printf("checking this for bottlenecks:\n");
+  game_print(info, state);
+  */
+  
   size_t color = state->last_move ? cell_get_color(state->last_move) : MAX_COLORS;
 
   if (color >= info->num_colors) { return 0; }
@@ -2008,9 +2015,16 @@ int game_check_bottleneck(const game_info_t* info,
 
     int x2 = x1 + dx;
     int y2 = y1 + dy;
+
     
     if (game_is_free(info, state, x1, y1) &&
         !game_is_free(info, state, x2, y2)) {
+
+      /*
+      printf("found a bottleneck near %s between row %d col %d and row %d col %d\n",
+             color_name_str(info, color),
+             y0+1, x0+1, y2+1, x2+1);
+      */
 
       int r = game_check_chokepoint(info, state, color, dir, endpoint, x1, y1);
 
@@ -2047,7 +2061,7 @@ void game_diagnostics(const game_info_t* info,
   game_state_t state_copy = node->state;
 
   int forced = 1;
-
+  
   while (forced) {
 
     printf("game state:\n\n");
@@ -2111,6 +2125,89 @@ void game_diagnostics(const game_info_t* info,
   
 }
 
+tree_node_t* game_validate(const game_info_t* info,
+                           tree_node_t* node,
+                           node_storage_t* storage) {
+
+  const game_state_t* node_state = &node->state;
+  
+  //printf("validating this state:\n");
+  //game_print(info, node_state);
+
+  if (g_options.cost_check_stranded ||
+      g_options.cost_check_deadends) {
+    
+    uint8_t rmap[MAX_CELLS];
+    size_t rcount = game_build_regions(info, node_state, rmap);
+    
+    if ( (g_options.cost_check_stranded &&
+          game_regions_stranded(info, node_state, rcount, rmap, MAX_COLORS)) ||
+         (g_options.cost_check_deadends &&
+          game_regions_deadends(info, node_state, rcount, rmap)) ) {
+
+      //printf("nope, stranded! killing node %p\n", node);
+      goto unalloc_return_0;
+            
+    }
+
+  }
+
+  if (g_options.cost_check_bottlenecks && 
+      game_check_bottleneck(info, node_state)) {
+
+    //printf("nope, bottlenecked! killing node %p\n", node);
+    goto unalloc_return_0;
+    
+  }
+
+  if (g_options.order_forced_first) {
+
+    int color, dir, endpoint;
+    
+    if (game_find_forced(info, node_state,
+                         &color, &dir, &endpoint)) {
+
+      cell_t move = cell_create(TYPE_PATH, color, dir);
+
+      //printf("there is a forced move of %s at endpoint %d\n",
+      //color_cell_str(info, move), endpoint);
+
+      if (!game_can_move(info, node_state, color, dir, endpoint)) {
+        //printf("...but it is not allowed, so killing node %p\n", node);
+        goto unalloc_return_0;
+      }
+      
+      tree_node_t* forced_child = node_create(storage, node, info,
+                                              node_state);
+
+      //printf("ok, making forced move...\n");
+      game_make_move(info, &forced_child->state,
+                     color, dir, endpoint);
+
+      node_update_costs(info, forced_child, 0);
+      forced_child = game_validate(info, forced_child, storage);
+      
+      if (!forced_child) {
+        //printf("forced move did not validate, killing %p\n", node);
+        goto unalloc_return_0;
+      } else {
+        return forced_child;
+      }
+
+    }
+
+  }
+                               
+  //printf("node %p validated ok\n", node);
+  return node;
+
+ unalloc_return_0:
+
+  node_storage_unalloc(storage, node);
+  return 0;
+  
+}
+
 //////////////////////////////////////////////////////////////////////
 // Peforms A* or BFS search
 
@@ -2145,7 +2242,7 @@ int game_search(const game_info_t* info,
   }
 
   queue_t q = queue_create(max_nodes);
-  queue_enqueue(&q, root);
+
 
   int result = SEARCH_IN_PROGRESS;
   const tree_node_t* solution_node = NULL;
@@ -2154,6 +2251,14 @@ int game_search(const game_info_t* info,
 
   double start = now();
 
+  root = game_validate(info, root, &storage);
+
+  if (!root) {
+    result = SEARCH_UNREACHABLE;
+  } else {
+    queue_enqueue(&q, root);
+  }
+  
   while (result == SEARCH_IN_PROGRESS) {
 
     if (queue_empty(&q)) {
@@ -2168,21 +2273,8 @@ int game_search(const game_info_t* info,
     
     int endpoint = 0;
     int color = game_next_move_color(info, parent_state, &endpoint);
-    
-    int num_dirs = 4;
-    int dirs[4] = { 0, 1, 2, 3 };
-    int forced = 0;
-    int used_hint = 0;
 
-    if (g_options.order_forced_first) {
-
-      forced = game_find_forced(info, parent_state,
-                                &color, dirs, &endpoint);
-
-      if (forced) { num_dirs = 1; }
-
-    }
-
+    /*
     if (hint) {
       pos_t pos = parent_state->pos[color][endpoint];
       if (hint[pos] == color || hint[pos] >= info->num_colors) {
@@ -2203,19 +2295,13 @@ int game_search(const game_info_t* info,
           used_hint = 1;
           int hint_x, hint_y;
           pos_get_coords(hint_pos, &hint_x, &hint_y);
-          /*
-          game_print(info, parent_state);
-          printf("hint says to move %s into %d, %d\n",
-                 color_cell_str(info, cell_create(TYPE_PATH, color, dir)),
-                 hint_x, hint_y);
-          */
         }
       }
     }
-      
-    for (int d=0; d<num_dirs; ++d) {
+    */
 
-      int dir = dirs[d];
+      
+    for (int dir=0; dir<4; ++dir) {
 
       if (game_can_move(info, &n->state,
                         color, dir, endpoint)) {
@@ -2232,7 +2318,6 @@ int game_search(const game_info_t* info,
 
         size_t action_cost = game_make_move(info, &child->state,
                                             color, dir, endpoint);
-        if (forced) { action_cost = 0; }
         
         node_update_costs(info, child, action_cost);
 
@@ -2249,50 +2334,10 @@ int game_search(const game_info_t* info,
       
         }
 
-        if (g_options.cost_check_stranded ||
-            g_options.cost_check_deadends) {
-
-          size_t rcount = game_build_regions(info, child_state, rmap);
-
-          if ( (g_options.cost_check_stranded &&
-                game_regions_stranded(info, child_state, rcount, rmap, MAX_COLORS)) ||
-               (g_options.cost_check_deadends &&
-                game_regions_deadends(info, child_state, rcount, rmap)) ) {
-
-            node_storage_unalloc(&storage, child);
-            continue;
-            
-          }
-
+        child = game_validate(info, child, &storage);
+        if (child) {
+          queue_enqueue(&q, child);
         }
-
-        if (g_options.cost_check_bottlenecks) {
-
-          int r = game_check_bottleneck(info, child_state);
-
-          if (r) {
-
-            /*
-            if (!g_options.display_quiet) {
-              game_print(info, child_state);
-              printf("chokepoint for ");
-              for (size_t color=0; color<info->num_colors; ++color) {
-                if (r & (1 << color)) {
-                  printf("%s", color_name_str(info, color));
-                }
-              }
-              printf("\n\n");
-            }
-            */
-            
-            node_storage_unalloc(&storage, child);
-            continue;
-
-          }
-          
-        }
-          
-        queue_enqueue(&q, child);
 
       } // if can move 
 
