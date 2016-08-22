@@ -110,6 +110,7 @@ typedef struct options_struct {
   int         search_astar_like;
   size_t      search_max_nodes;
   double      search_max_mb;
+  int         search_max_endpoint;
   
 } options_t;
 
@@ -389,6 +390,26 @@ int pos_is_adjacent(pos_t a, pos_t b) {
   return diff == 1 || diff == 16;
 }
 
+int dir_from_pos(pos_t a, pos_t b, int reverse) {
+
+  assert(pos_is_adjacent(a, b));
+  
+  int delta = b - a;
+  int dir;
+            
+  int sign = (reverse == 0 ? 1 : -1);
+
+  for (dir=0; dir<4; ++dir) {
+    if (DIR_DELTA[dir][2] == delta*sign) {
+      break;
+    }
+  }
+
+  return dir;
+
+}
+
+
 //////////////////////////////////////////////////////////////////////
 // Get in-bounds neighbors of given x, y position
 
@@ -553,8 +574,6 @@ int game_can_move(const game_info_t* info,
                   const game_state_t* state,
                   int color, int dir, int endpoint) {
 
-  if (endpoint == 1) { return 0; }
-
   // Make sure color is valid
   assert(color < info->num_colors);
 
@@ -564,9 +583,11 @@ int game_can_move(const game_info_t* info,
   int cur_x, cur_y;
   pos_get_coords(state->pos[color][endpoint], &cur_x, &cur_y);
 
+  int sign = (endpoint == 0 ? 1 : -1);
+
   // Get new x, y
-  int new_x = cur_x + DIR_DELTA[dir][0];
-  int new_y = cur_y + DIR_DELTA[dir][1];
+  int new_x = cur_x + sign * DIR_DELTA[dir][0];
+  int new_y = cur_y + sign * DIR_DELTA[dir][1];
 
   // If outside bounds, not legal
   if (new_x < 0 || new_x >= info->size ||
@@ -652,10 +673,6 @@ double game_make_move(const game_info_t* info,
                       game_state_t* state, 
                       int color, int dir, int endpoint) {
 
-  if (endpoint == 1) {
-    fprintf(stderr, "moving backward not supported yet!\n");
-    exit(1);
-  }
 
   // Make sure valid color
   assert(color < info->num_colors);
@@ -664,9 +681,11 @@ double game_make_move(const game_info_t* info,
   int cur_x, cur_y;
   pos_get_coords(state->pos[color][endpoint], &cur_x, &cur_y);
 
+  int sign = (endpoint == 0 ? 1 : -1);
+
   // Assemble new x, y
-  int new_x = cur_x + DIR_DELTA[dir][0];
-  int new_y = cur_y + DIR_DELTA[dir][1];
+  int new_x = cur_x + sign * DIR_DELTA[dir][0];
+  int new_y = cur_y + sign * DIR_DELTA[dir][1];
 
   // Make sure valid
   assert( new_x >= 0 && new_x < info->size &&
@@ -689,9 +708,9 @@ double game_make_move(const game_info_t* info,
   state->last_color = color;
 
   double action_cost = 1;
-  int other = 1 - endpoint;
 
-  if (pos_is_adjacent(new_pos, state->pos[color][other])) {
+  if (pos_is_adjacent(state->pos[color][0],
+                      state->pos[color][1])) {
     
     state->completed |= (1 << color);
     action_cost = 0;
@@ -867,7 +886,10 @@ void game_read(const char* filename,
 // Pick the next color to move deterministically
 
 int game_next_move_color(const game_info_t* info,
-                         const game_state_t* state) {
+                         const game_state_t* state,
+                         int* endpoint_out) {
+
+  *endpoint_out = 0;
 
   if (state->last_color < info->num_colors &&
       !(state->completed & (1 << state->last_color))) {
@@ -877,32 +899,39 @@ int game_next_move_color(const game_info_t* info,
   if (g_options.order_most_constrained) {
 
     size_t best_color = -1;
+    int best_endpoint = 0;
     int best_free = 4;
     
     for (size_t i=0; i<info->num_colors; ++i) {
 
-      int color = info->color_order[i];
-      if (state->completed & (1 << color)) { continue; }
+      for (int endpoint=0; endpoint<g_options.search_max_endpoint; ++endpoint) {
 
-      pos_t neighbors[4];
+        int color = info->color_order[i];
+        if (state->completed & (1 << color)) { continue; }
+
+        pos_t neighbors[4];
         
-      int num_neighbors = pos_get_neighbors(info, state->pos[color][0],
-                                            neighbors);
-      int num_free = 0;
+        int num_neighbors = pos_get_neighbors(info, state->pos[color][endpoint],
+                                              neighbors);
+        int num_free = 0;
         
-      for (int n=0; n<num_neighbors; ++n) {
-        if (state->cells[neighbors[n]] == 0) { ++num_free; }
-      }
+        for (int n=0; n<num_neighbors; ++n) {
+          if (state->cells[neighbors[n]] == 0) { ++num_free; }
+        }
         
-      if (num_free < best_free) {
-        best_free = num_free;
-        best_color = color;
+        if (num_free < best_free) {
+          best_free = num_free;
+          best_color = color;
+          best_endpoint = endpoint;
+        }
+
       }
 
     }
 
     assert(best_color < info->num_colors);
 
+    *endpoint_out = best_endpoint;
     return best_color;
     
   } else {
@@ -1380,7 +1409,7 @@ void game_print_regions(const game_info_t* info,
 
 int game_is_forced(const game_info_t* info,
                    const game_state_t* state,
-                   int color,
+                   int color, int endpoint,
                    pos_t pos) {
 
   pos_t neighbors[4];
@@ -1390,7 +1419,7 @@ int game_is_forced(const game_info_t* info,
   int num_other_endpoints = 0;
 
   for (int n=0; n<num_neighbors; ++n) {
-    if (neighbors[n] == state->pos[color][0]) {
+    if (neighbors[n] == state->pos[color][endpoint]) {
       continue;
     } else if (state->cells[neighbors[n]] == 0) {
       ++num_free;
@@ -1427,35 +1456,57 @@ int game_find_forced(const game_info_t* info,
 
     if (state->completed & (1 << color)) { continue; }
 
-    pos_t neighbors[4];
-    int num_neighbors = pos_get_neighbors(info,
-                                          state->pos[color][0],
-                                          neighbors);
+    for (int endpoint=0; endpoint<g_options.search_max_endpoint; ++endpoint) {
 
-    for (int n=0; n<num_neighbors; ++n) {
+      int sign = (endpoint == 0 ? 1 : -1);
+      pos_t neighbors[4];
+      int num_neighbors = pos_get_neighbors(info,
+                                            state->pos[color][endpoint],
+                                            neighbors);
 
-      pos_t neighbor_pos = neighbors[n];
+      pos_t free_neighbor = INVALID_POS;
+      int num_free = 0;
 
-      if (state->cells[neighbor_pos] == 0 &&
-          game_is_forced(info, state, color, neighbor_pos)) {
+      for (int n=0; n<num_neighbors; ++n) {
 
-        int delta = neighbor_pos - state->pos[color][0];
+        pos_t neighbor_pos = neighbors[n];
 
-        int dir;
-        for (dir=0; dir<4; ++dir) {
-          if (DIR_DELTA[dir][2] == delta) {
-            break;
+        if (state->cells[neighbor_pos] == 0) {
+
+          free_neighbor = neighbor_pos;
+          ++num_free;
+          
+          if (game_is_forced(info, state, color, endpoint, neighbor_pos)) {
+
+            int dir = dir_from_pos(state->pos[color][endpoint],
+                                   neighbor_pos, endpoint);
+
+            *forced_color = color;
+            *forced_dir = dir;
+            *forced_endpoint = endpoint;
+
+            return 1;
+
           }
+
         }
+
+      } // for each neighbor
+
+      if (0 && num_free == 1) {
+
+        int dir = dir_from_pos(state->pos[color][endpoint],
+                               free_neighbor, endpoint);
 
         *forced_color = color;
         *forced_dir = dir;
-        *forced_endpoint = 0;
+        *forced_endpoint = endpoint;
 
         return 1;
 
       }
-
+      
+      
     }
   }
 
@@ -1861,9 +1912,10 @@ void game_diagnose(const game_info_t* info,
 
       cell_t move = cell_create(TYPE_PATH, color, dir);
 
-      printf("color %s is forced to move %s!\n",
+      printf("color %s is forced to move %s at end %d!\n",
              color_name_str(info, color),
-             color_cell_str(info, move));
+             color_cell_str(info, move),
+             endpoint);
 
       if (!game_can_move(info, &state_copy, color, dir, endpoint)) {
         printf("...but it is not allowed -- state should be pruned!\n");
@@ -1934,10 +1986,11 @@ void game_search(const game_info_t* info,
 
     game_state_t* parent_state = &n->state;
     
-    int color = game_next_move_color(info, parent_state);
+    int endpoint = 0;
+    int color = game_next_move_color(info, parent_state, &endpoint);
+    
     int num_dirs = 4;
     int dirs[4] = { 0, 1, 2, 3 };
-    int endpoint = 0;
     int forced = 0;
 
     if (g_options.order_forced_first) {
@@ -2270,6 +2323,7 @@ int main(int argc, char** argv) {
   g_options.order_user = NULL;
   g_options.search_max_nodes = 0;
   g_options.search_max_mb = 512;
+  g_options.search_max_endpoint = 1;
 
   const char* input_files[argc];
   
