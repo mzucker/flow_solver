@@ -2026,6 +2026,7 @@ void game_search(const game_info_t* info,
       } else {
         delay_seconds(1.0);
         game_animate_solution(info, solution_node);
+        delay_seconds(1.0);
       }
     } 
 
