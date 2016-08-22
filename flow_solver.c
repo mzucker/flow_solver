@@ -35,7 +35,7 @@ enum {
   INVALID_POS = 0xff,
   
   // Maximum # of colors in a puzzle
-  MAX_COLORS = 15,
+  MAX_COLORS = 16,
   
   // Maximum valid size of a puzzle
   MAX_SIZE = 15,
@@ -240,7 +240,7 @@ const int DIR_DELTA[4][3] = {
 const color_lookup color_dict[MAX_COLORS] = {
   { 'R', 'o', 101 }, // red
   { 'B', '+', 104 }, // blue
-  { 'Y', '&', 103 }, // yellow
+  { 'Y', '@', 103 }, // yellow
   { 'G', '*',  42 }, // green
   { 'O', 'x',  43 }, // orange
   { 'C', '%', 106 }, // cyan
@@ -249,10 +249,11 @@ const color_lookup color_dict[MAX_COLORS] = {
   { 'P', '^',  45 }, // purple
   { 'A', '=', 100 }, // gray
   { 'W', '~', 107 }, // white
-  { 'g', '.', 102 }, // bright green
-  { 'w', '-',  47 }, // beige
+  { 'g', '-', 102 }, // bright green
+  { 'w', '$',  47 }, // beige
   { 'b', '"',  44 }, // dark blue
-  { 'c', ',',  46 }, // dark cyan
+  { 'c', '&',  46 }, // dark cyan
+  { 'p', '.',  35 }, // pink?
 };
 
 // Global options struct gets setup during main
@@ -737,7 +738,7 @@ void game_read(const char* filename,
 
   size_t y=0;
 
-  char buf[MAX_SIZE+1];
+  char buf[MAX_SIZE+2];
 
   char color_lookup[MAX_COLORS];
 
@@ -745,7 +746,7 @@ void game_read(const char* filename,
 
   while (info->size == 0 || y < info->size) {
 
-    char* s = fgets(buf, MAX_SIZE, fp);
+    char* s = fgets(buf, MAX_SIZE+1, fp);
     size_t l = s ? strlen(s) : 0;
     
     if (!s || s[l-1] != '\n') {
