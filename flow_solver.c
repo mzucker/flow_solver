@@ -109,6 +109,7 @@ typedef struct options_struct {
   const char* order_user;
   
   int         search_astar_like;
+  int         search_outside_in;
   size_t      search_max_nodes;
   double      search_max_mb;
   int         search_max_endpoint;
@@ -162,6 +163,7 @@ typedef struct game_state_struct {
 
 typedef struct color_features_struct {
   int index;
+  int user_index;
   int cur_wall_dist;
   int goal_wall_dist;
   int cur_goal_dist;
@@ -884,9 +886,27 @@ int game_read(const char* filename,
               color_name_str(info, color));
       return 0;
     }
-    
-  }
 
+    if (g_options.search_outside_in) {
+
+      int wd[2];
+
+      for (int i=0; i<2; ++i) {
+        wd[i] = pos_get_wall_dist(info, state->pos[color][i]);
+      }
+
+      if (wd[1] < wd[0]) {
+        pos_t tmp_pos = state->pos[color][0];
+        state->pos[color][0] = state->pos[color][1];
+        state->pos[color][1] = tmp_pos;
+        state->cells[state->pos[color][0]] = cell_create(TYPE_INIT, color, 0);
+        state->cells[state->pos[color][1]] = cell_create(TYPE_GOAL, color, 0);
+      }
+
+    }
+
+  }
+  
   return 1;
 
 }
@@ -1021,8 +1041,10 @@ int color_features_compare(const void* vptr_a, const void* vptr_b) {
   const color_features_t* a = (const color_features_t*)vptr_a;
   const color_features_t* b = (const color_features_t*)vptr_b;
 
+  int u = cmp(a->user_index, b->user_index);
+  if (u) { return u; }
+
   int w = cmp(a->cur_wall_dist, b->cur_wall_dist);
-  
   if (w) { return w; }
 
   int g = -cmp(a->goal_wall_dist, b->goal_wall_dist);
@@ -1038,45 +1060,7 @@ int color_features_compare(const void* vptr_a, const void* vptr_b) {
 void game_order_colors(game_info_t* info,
                        game_state_t* state) {
 
-  if (g_options.order_user) {
-
-    uint8_t in_use[MAX_COLORS];
-    memset(in_use, 0, MAX_COLORS);
-
-    size_t k;
-    
-    for (k=0; k<info->num_colors && g_options.order_user[k]; ++k) {
-
-      char c = g_options.order_user[k];
-
-      for (size_t color=0; color<info->num_colors; ++color) {
-        int id = info->color_ids[color];
-        if (c == color_dict[id].input_char) {
-          if (in_use[color]) {
-            fprintf(stderr, "error ordering colors: %c already used\n", c);
-            exit(1);
-          }
-          in_use[color] = 1;
-          info->color_order[k] = color;
-          c = 0;
-          break;
-        }
-      }
-
-      if (c) {
-        fprintf(stderr, "error ordering colors: %c not in puzzle\n", c);
-        exit(1);
-      }
-
-    }
-
-    for (size_t color=0; color<info->num_colors; ++color) {
-      if (!in_use[color]) {
-        info->color_order[k++] = color;
-      }
-    }
-    
-  } else if (g_options.order_random) {
+  if (g_options.order_random) {
     
     srand(now() * 1e6);
     
@@ -1087,41 +1071,48 @@ void game_order_colors(game_info_t* info,
       info->color_order[j] = tmp;
     }
 
-  } else if (g_options.order_autosort_colors) {
+  } else { // not random
 
     color_features_t cf[MAX_COLORS];
+    memset(cf, 0, sizeof(cf));
+    
+    if (g_options.order_autosort_colors) {
 
-    for (size_t color=0; color<info->num_colors; ++color) {
+      for (size_t color=0; color<info->num_colors; ++color) {
 
-      int cur_x, cur_y, goal_x, goal_y;
+        int cur_x, cur_y, goal_x, goal_y;
 
-      pos_get_coords(state->pos[color][0], &cur_x, &cur_y);
-      pos_get_coords(state->pos[color][1], &goal_x, &goal_y);
+        pos_get_coords(state->pos[color][0], &cur_x, &cur_y);
+        pos_get_coords(state->pos[color][1], &goal_x, &goal_y);
 
-      int dx = abs(goal_x - cur_x);
-      int dy = abs(goal_y - cur_y);
+        int dx = abs(goal_x - cur_x);
+        int dy = abs(goal_y - cur_y);
       
-      cf[color].index = color;
-      cf[color].cur_wall_dist = get_wall_dist(info, cur_x, cur_y);
-      cf[color].goal_wall_dist = get_wall_dist(info, goal_x, goal_y);
+        cf[color].index = color;
+        cf[color].user_index = MAX_COLORS;
+        cf[color].cur_wall_dist = get_wall_dist(info, cur_x, cur_y);
+        cf[color].goal_wall_dist = get_wall_dist(info, goal_x, goal_y);
+        cf[color].cur_goal_dist = dx + dy;
 
-      if (cf[color].cur_wall_dist > cf[color].goal_wall_dist) {
-
-        pos_t tmp_pos = state->pos[color][0];
-        state->pos[color][0] = state->pos[color][1];
-        state->pos[color][1] = tmp_pos;
-        
-        cell_t tmp_cell = state->cells[state->pos[color][0]];
-        state->cells[state->pos[color][0]] = state->cells[state->pos[color][1]];
-        state->cells[state->pos[color][1]] = tmp_cell;
-
-        int tmp_dist = cf[color].cur_wall_dist;
-        cf[color].cur_wall_dist = cf[color].goal_wall_dist;
-        cf[color].goal_wall_dist = tmp_dist;
-      
       }
-        
-      cf[color].cur_goal_dist = dx + dy;
+
+    }
+
+    if (g_options.order_user) {
+      
+      for (size_t k=0; g_options.order_user[k]; ++k) {
+        uint8_t c = g_options.order_user[k];
+        int color = c < 127 ? info->color_tbl[c] : MAX_COLORS;
+        if (color >= info->num_colors) {
+          fprintf(stderr, "error ordering colors: %c not in puzzle\n", c);
+          exit(1);
+        }
+        if (cf[color].user_index < info->num_colors) {
+          fprintf(stderr, "error ordering colors: %c already used\n", c);
+          exit(1);
+        }
+        cf[color].user_index = k;
+      }
 
     }
 
@@ -2561,16 +2552,20 @@ int main(int argc, char** argv) {
   g_options.display_animate = 1;
   g_options.display_color = terminal_has_color();
   g_options.display_speedup = 1.0;
+  
   g_options.cost_check_touch = 1;
-  g_options.order_autosort_colors = 1;
-  g_options.order_most_constrained = 1;
-  g_options.order_forced_first = 1;
-  g_options.search_astar_like = 1;
   g_options.cost_check_stranded = 1;
   g_options.cost_check_deadends = 1;
   g_options.cost_check_bottlenecks = 1;
   g_options.cost_penalize_exploration = 0;
+
+  g_options.order_autosort_colors = 1;
+  g_options.order_most_constrained = 1;
+  g_options.order_forced_first = 1;
   g_options.order_user = NULL;
+
+  g_options.search_outside_in = 1;
+  g_options.search_astar_like = 1;
   g_options.search_max_nodes = 0;
   g_options.search_max_mb = 512;
   g_options.search_max_endpoint = 1;
