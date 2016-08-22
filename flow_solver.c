@@ -741,15 +741,15 @@ double game_make_move(const game_info_t* info,
 //////////////////////////////////////////////////////////////////////
 // Read game board from text file
 
-void game_read(const char* filename,
-               game_info_t* info,
-               game_state_t* state) {
+int game_read(const char* filename,
+              game_info_t* info,
+              game_state_t* state) {
 
   FILE* fp = fopen(filename, "r");
 
   if (!fp) {
     fprintf(stderr, "error opening %s\n", filename);
-    exit(1);
+    return 0;
   }
 
   memset(info, 0, sizeof(game_info_t));
@@ -774,17 +774,20 @@ void game_read(const char* filename,
     
     if (!s || s[l-1] != '\n') {
       fprintf(stderr, "%s:%zu: unexpected EOF\n", filename, y+1);
-      exit(1);
+      fclose(fp);
+      return 0;
     }
 
     if (info->size == 0) {
       if (l < 6) {
         fprintf(stderr, "%s:1: expected at least 5 characters before newline\n",
                 filename);
-        exit(1);
+        fclose(fp);
+        return 0;
       } else if (l-1 > MAX_SIZE) {
         fprintf(stderr, "%s:1: size too big!\n", filename);
-        exit(1);
+        fclose(fp);
+        return 0;
       }
       info->size = l-1;
     } else if (l != info->size + 1) {
@@ -792,6 +795,8 @@ void game_read(const char* filename,
               "(expected %zu, but got %zu)\n",
               filename, y+1,
               info->size, l-1);
+      fclose(fp);
+      return 0;
     }
 
     for (size_t x=0; x<info->size; ++x) {
@@ -818,14 +823,17 @@ void game_read(const char* filename,
             fprintf(stderr, "%s:%zu: can't use color %c"
                     "- too many colors!\n",
                     filename, y+1, c);
-            exit(1);
+            fclose(fp);
+            return 0;
+
           }
 
           int id = get_color_id(c);
           if (id < 0) {
             fprintf(stderr, "%s:%zu: unrecognized color %c\n",
                     filename, y+1, c);
-            exit(1);
+            fclose(fp);
+            return 0;
           }
 
           info->color_ids[color] = id;
@@ -841,7 +849,8 @@ void game_read(const char* filename,
           if (state->pos[color][1] != INVALID_POS) {
             fprintf(stderr, "%s:%zu too many %c already!\n",
                     filename, y+1, c);
-            exit(1);
+            fclose(fp);
+            return 0;
           }
           state->pos[color][1] = pos;
           state->cells[pos] = cell_create(TYPE_GOAL, color, 0);
@@ -857,9 +866,11 @@ void game_read(const char* filename,
     ++y;
   }
 
+  fclose(fp);
+
   if (!info->num_colors) {
     fprintf(stderr, "empty map!\n");
-    exit(1);
+    return 0;
   }
 
   for (size_t color=0; color<info->num_colors; ++color) {
@@ -871,15 +882,12 @@ void game_read(const char* filename,
               set_color_str(info->color_ids[color]),
               color_lookup[color],
               reset_color_str());
-      exit(1);
+      return 0;
     }
     
   }
 
-  if (!g_options.display_quiet) {
-    printf("read %zux%zu board with %zu colors from %s\n\n",
-           info->size, info->size, info->num_colors, filename );
-  }
+  return 1;
 
 }
 
@@ -1919,33 +1927,40 @@ int game_check_chokepoint(const game_info_t* info,
 int game_check_bottleneck(const game_info_t* info,
                           const game_state_t* state) {
 
-  if (state->last_color >= info->num_colors) { return 0; }
 
-  int color = state->last_color;
+  for (size_t color=0; color<info->num_colors; ++color) {
 
-  pos_t pos = state->pos[color][0];
+    int at_start = cell_get_type(state->cells[state->pos[color][0]]) == TYPE_INIT;
+
+    if (color == state->last_color || at_start) {
+
+      pos_t pos = state->pos[color][0];
   
-  int x0, y0;
-  pos_get_coords(pos, &x0, &y0);
+      int x0, y0;
+      pos_get_coords(pos, &x0, &y0);
 
-  for (int dir=0; dir<4; ++dir) {
+      for (int dir=0; dir<4; ++dir) {
 
-    int dx = DIR_DELTA[dir][0];
-    int dy = DIR_DELTA[dir][1];
+        int dx = DIR_DELTA[dir][0];
+        int dy = DIR_DELTA[dir][1];
 
-    int x1 = x0 + dx;
-    int y1 = y0 + dy;
+        int x1 = x0 + dx;
+        int y1 = y0 + dy;
 
-    int x2 = x1 + dx;
-    int y2 = y1 + dy;
+        int x2 = x1 + dx;
+        int y2 = y1 + dy;
     
-    if (game_is_free(info, state, x1, y1) &&
-        !game_is_free(info, state, x2, y2)) {
+        if (game_is_free(info, state, x1, y1) &&
+            !game_is_free(info, state, x2, y2)) {
 
-      int r = game_check_chokepoint(info, state, color, dir, x1, y1);
+          int r = game_check_chokepoint(info, state, color, dir, x1, y1);
 
-      if (r) { return r; }
+          if (r) { return r; }
       
+        }
+
+      }
+
     }
 
   }
@@ -2166,6 +2181,7 @@ void game_search(const game_info_t* info,
 
           if (r) {
 
+            /*
             if (!g_options.display_quiet) {
               game_print(info, child_state);
               printf("chokepoint for ");
@@ -2176,6 +2192,7 @@ void game_search(const game_info_t* info,
               }
               printf("\n\n");
             }
+            */
             
             node_storage_unalloc(&storage, child);
             continue;
@@ -2473,13 +2490,10 @@ int main(int argc, char** argv) {
     size_t l = strlen(input_files[i]);
     if (l > max_width) { max_width = l; }
   }
+
+  int boards = 0;
   
   for (size_t i=0; i<num_inputs; ++i) {
-
-    if (i && !g_options.display_quiet) {
-      printf("\n***********************************"
-             "***********************************\n\n");
-    }
 
     const char* input_file = input_files[i];
 
@@ -2487,9 +2501,22 @@ int main(int argc, char** argv) {
     snprintf(input_file_padded, 1024, "%-*s",
              (int)max_width, input_file);
   
-    game_read(input_file, &info, &state);
-    game_order_colors(&info, &state);
-    game_search(&info, &state, input_file_padded);
+    if (game_read(input_file, &info, &state)) {
+
+      if (boards++ && !g_options.display_quiet) {
+        printf("\n***********************************"
+               "***********************************\n\n");
+      }
+
+      if (!g_options.display_quiet) {
+        printf("read %zux%zu board with %zu colors from %s\n\n",
+               info.size, info.size, info.num_colors, input_file);
+      }
+      
+      game_order_colors(&info, &state);
+      game_search(&info, &state, input_file_padded);
+      
+    }
 
   }
     
