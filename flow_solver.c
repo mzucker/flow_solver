@@ -2624,7 +2624,7 @@ int main(int argc, char** argv) {
 
       double elapsed;
       size_t nodes;
-      
+
       int result = game_search(&info, &state, hint_file ? hint : 0,
                                &elapsed, &nodes);
 
@@ -2636,7 +2636,7 @@ int main(int argc, char** argv) {
 
       if (g_options.display_quiet) {
         
-        printf("%*s %c %8.3f %8zu\n",
+        printf("%*s %c %'12.3f %'12zu\n",
                max_width, input_file,
                SEARCH_RESULT_CHARS[result],
                elapsed, nodes);
@@ -2675,7 +2675,7 @@ int main(int argc, char** argv) {
       
       printf("\n");
       for (int i=0; i<3; ++i) {
-        printf("%*s%3d total %c %8.3f %8zu\n",
+        printf("%*s%3d total %c %'12.3f %'12zu\n",
                max_width-9, "",
                total_count[i],
                SEARCH_RESULT_CHARS[i],
@@ -2683,7 +2683,7 @@ int main(int argc, char** argv) {
                total_nodes[i]);
       }
       printf("\n");
-      printf("%*s%3d overall %8.3f %8zu\n",
+      printf("%*s%3d overall %'12.3f %'12zu\n",
              max_width-9, "",
              boards,
              overall_elapsed,
