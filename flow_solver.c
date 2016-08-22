@@ -2590,7 +2590,7 @@ int main(int argc, char** argv) {
   g_options.search_outside_in = 1;
   g_options.search_astar_like = 1;
   g_options.search_max_nodes = 0;
-  g_options.search_max_mb = 512;
+  g_options.search_max_mb = 1600; // damn you, jumbo_14x14_19.txt!
   g_options.search_max_endpoint = 1;
 
   const char* input_files[argc];
