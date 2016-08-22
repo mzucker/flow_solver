@@ -21,10 +21,10 @@
 //   - TODO: figure out why things only work for bigger puzzles if
 //           moves which are forced have zero cost.
 //
-//   - TODO: detect bottlenecks/choke points? (places where multiple
-//           flows would HAVE to pass through but can't
+//   - TODO: detect larger bottlenecks/choke points?
 //
-//   - TODO: bidirectional search?
+//   - TODO: try bidirectional search? (code is sort of in place but
+//           seems to worsen things a lot.
 //
 //////////////////////////////////////////////////////////////////////
 
@@ -90,29 +90,28 @@ typedef struct color_lookup_struct {
 // Options for this program
 typedef struct options_struct {
 
-  int         display_quiet;
-  int         display_diagnostics;
-  int         display_animate;
-  int         display_color;
-  double      display_speedup;
+  int    display_quiet;
+  int    display_diagnostics;
+  int    display_animate;
+  int    display_color;
+  int    display_fast;
   
-  int         cost_check_touch;
-  int         cost_check_stranded;
-  int         cost_check_deadends;
-  int         cost_check_bottlenecks;
-  int         cost_penalize_exploration;
+  int    cost_check_touch;
+  int    cost_check_stranded;
+  int    cost_check_deadends;
+  int    cost_check_bottlenecks;
+  int    cost_penalize_exploration;
   
-  int         order_autosort_colors;
-  int         order_most_constrained;
-  int         order_forced_first;
-  int         order_random;
-  const char* order_user;
+  int    order_autosort_colors;
+  int    order_most_constrained;
+  int    order_forced_first;
+  int    order_random;
   
-  int         search_astar_like;
-  int         search_outside_in;
-  size_t      search_max_nodes;
-  double      search_max_mb;
-  int         search_max_endpoint;
+  int    search_astar_like;
+  int    search_outside_in;
+  size_t search_max_nodes;
+  double search_max_mb;
+  int    search_max_endpoint;
   
 } options_t;
 
@@ -134,6 +133,9 @@ typedef struct game_info_struct {
 
   // Color table for looking up color ID
   uint8_t color_tbl[128];
+
+  // Was user order specified?
+  int user_order;
   
 } game_info_t;
 
@@ -164,9 +166,8 @@ typedef struct game_state_struct {
 typedef struct color_features_struct {
   int index;
   int user_index;
-  int cur_wall_dist;
-  int goal_wall_dist;
-  int cur_goal_dist;
+  int wall_dist[2];
+  int min_dist;
 } color_features_t;
 
 // Disjoint-set data structure for connected component analysis of free
@@ -225,8 +226,10 @@ const tree_node_t* (*queue_peek)(const queue_t*) = 0;
 
 //////////////////////////////////////////////////////////////////////
 
+// For succinct printing of search results
 const char SEARCH_RESULT_CHARS[4] = "suf?";
 
+// For verbose printing of search results
 const char* SEARCH_RESULT_STRINGS[4] = {
   "successful",
   "unsolvable",
@@ -234,6 +237,7 @@ const char* SEARCH_RESULT_STRINGS[4] = {
   "in progress"
 };
 
+// Was gonna try some unicode magic but meh
 const char* BLOCK_CHAR = "#";
 
 // For visualizing cardinal directions ordered by the enum above.
@@ -271,10 +275,11 @@ const color_lookup color_dict[MAX_COLORS] = {
 // Global options struct gets setup during main
 options_t g_options;
 
+//////////////////////////////////////////////////////////////////////
+// Return the current time as a double. Don't actually care what zero
+// is cause we will just offset.
 
 double now() {
-
-  int64_t sec, usec;
   
 #ifdef _WIN32
   union {
@@ -282,19 +287,14 @@ double now() {
     FILETIME ft;
   } now;
   GetSystemTimeAsFileTime (&now.ft);
-  usec = (long) ((now.ns100 / 10LL) % 1000000LL);
-  sec = (long) ((now.ns100 - 116444736000000000LL) / 10000000LL);
+  return (double)now.ns100 * 1e-7; // 100 nanoseconds = 0.1 microsecond
 #else
   struct timeval tv;
   gettimeofday(&tv, 0);
-  sec = tv.tv_sec;
-  usec = tv.tv_usec;
+  return (double)tv.tv_sec + (double)tv.tv_usec * 1e-6;
 #endif
 
-  return (double)sec + (double)usec * 1e-6;
-
 }
-  
 
 //////////////////////////////////////////////////////////////////////
 // Peform lookup in color_dict above
@@ -374,10 +374,11 @@ const char* unprint_board(const game_info_t* info) {
 // Create a delay
 
 void delay_seconds(double s) {
+  if (g_options.display_fast) { s /= 4.0; }
 #ifdef _WIN32
   // TODO: find win32 equivalent of usleep?
 #else
-  usleep((size_t)(s * 1e6 / g_options.display_speedup));
+  usleep((size_t)(s * 1e6));
 #endif
 }
 
@@ -473,7 +474,6 @@ int pos_get_wall_dist(const game_info_t* info,
   return get_wall_dist(info, x, y);
 
 }
-
 
 //////////////////////////////////////////////////////////////////////
 // Create a cell from a 2-bit type, a 4-bit color, and a 2-bit
@@ -830,7 +830,7 @@ int game_read(const char* filename,
 
     for (size_t x=0; x<info->size; ++x) {
       
-      char c = s[x];
+      uint8_t c = s[x];
       
       if (isalpha(c)) {
 
@@ -995,7 +995,8 @@ int game_next_move_color(const game_info_t* info,
     return last_color;
   }
 
-  if (g_options.order_most_constrained) {
+  if (!info->user_order &&
+      g_options.order_most_constrained) {
 
     size_t best_color = -1;
     int best_endpoint = 0;
@@ -1059,13 +1060,13 @@ int color_features_compare(const void* vptr_a, const void* vptr_b) {
   int u = cmp(a->user_index, b->user_index);
   if (u) { return u; }
 
-  int w = cmp(a->cur_wall_dist, b->cur_wall_dist);
+  int w = cmp(a->wall_dist[0], b->wall_dist[0]);
   if (w) { return w; }
 
-  int g = -cmp(a->goal_wall_dist, b->goal_wall_dist);
+  int g = -cmp(a->wall_dist[1], b->wall_dist[1]);
   if (g) { return g; }
 
-  return -cmp(a->cur_goal_dist, b->cur_goal_dist);
+  return -cmp(a->min_dist, b->min_dist);
 
 }
 
@@ -1073,7 +1074,8 @@ int color_features_compare(const void* vptr_a, const void* vptr_b) {
 // Place the game colors into a set order
 
 void game_order_colors(game_info_t* info,
-                       game_state_t* state) {
+                       game_state_t* state,
+                       const char* user_order) {
 
   if (g_options.order_random) {
     
@@ -1090,33 +1092,36 @@ void game_order_colors(game_info_t* info,
 
     color_features_t cf[MAX_COLORS];
     memset(cf, 0, sizeof(cf));
+
+    for (size_t color=0; color<info->num_colors; ++color) {
+      cf[color].user_index = MAX_COLORS;
+    }
     
     if (g_options.order_autosort_colors) {
 
       for (size_t color=0; color<info->num_colors; ++color) {
 
-        int cur_x, cur_y, goal_x, goal_y;
+        int x[2], y[2];
 
-        pos_get_coords(state->pos[color][0], &cur_x, &cur_y);
-        pos_get_coords(state->pos[color][1], &goal_x, &goal_y);
+        for (int i=0; i<2; ++i) {
+          pos_get_coords(state->pos[color][i], x+i, y+i);
+          cf[color].wall_dist[i] = get_wall_dist(info, x[i], y[i]);
+        }
 
-        int dx = abs(goal_x - cur_x);
-        int dy = abs(goal_y - cur_y);
+        int dx = abs(x[1]-x[0]);
+        int dy = abs(y[1]-y[0]);
       
         cf[color].index = color;
-        cf[color].user_index = MAX_COLORS;
-        cf[color].cur_wall_dist = get_wall_dist(info, cur_x, cur_y);
-        cf[color].goal_wall_dist = get_wall_dist(info, goal_x, goal_y);
-        cf[color].cur_goal_dist = dx + dy;
+        cf[color].min_dist = dx + dy;
 
       }
 
     }
 
-    if (g_options.order_user) {
+    if (user_order) {
       
-      for (size_t k=0; g_options.order_user[k]; ++k) {
-        uint8_t c = g_options.order_user[k];
+      for (size_t k=0; user_order[k]; ++k) {
+        uint8_t c = user_order[k];
         int color = c < 127 ? info->color_tbl[c] : MAX_COLORS;
         if (color >= info->num_colors) {
           fprintf(stderr, "error ordering colors: %c not in puzzle\n", c);
@@ -1128,6 +1133,8 @@ void game_order_colors(game_info_t* info,
         }
         cf[color].user_index = k;
       }
+
+      info->user_order = 1;
 
     }
 
@@ -1142,7 +1149,7 @@ void game_order_colors(game_info_t* info,
 
   if (!g_options.display_quiet) {
     
-    if (g_options.order_most_constrained) {
+    if (g_options.order_most_constrained && !user_order) {
       printf("will choose color by most constrained\n");
     } else {
       printf("will choose colors in order: ");
@@ -1273,12 +1280,12 @@ size_t game_build_regions(const game_info_t* info,
 // the current color bit flag to the regions adjacent to the current
 // or goal position. 
 
-void _game_regions_add_color(const game_info_t* info,
-                         const game_state_t* state,
-                         const uint8_t rmap[MAX_CELLS],
-                         pos_t pos,
-                         uint16_t cflag,
-                         uint16_t* rflags) {
+void game_regions_add_color(const game_info_t* info,
+                            const game_state_t* state,
+                            const uint8_t rmap[MAX_CELLS],
+                            pos_t pos,
+                            uint16_t cflag,
+                            uint16_t* rflags) {
 
   for (int dir=0; dir<4; ++dir) {
 
@@ -1390,14 +1397,14 @@ int game_regions_stranded(const game_info_t* info,
     }
 
     // Add color flag to all regions for cur_pos
-    _game_regions_add_color(info, state, rmap,
-                            state->pos[color][0],
-                            cflag, cur_rflags);
+    game_regions_add_color(info, state, rmap,
+                           state->pos[color][0],
+                           cflag, cur_rflags);
 
     // Add color flag to all regions for goal_pos
-    _game_regions_add_color(info, state, rmap,
-                            state->pos[color][1],
-                            cflag, goal_rflags);
+    game_regions_add_color(info, state, rmap,
+                           state->pos[color][1],
+                           cflag, goal_rflags);
 
     // Ensure this color is not "stranded" -- at least region must
     // touch each non-completed color for both current and goal.
@@ -1536,10 +1543,6 @@ int game_find_forced(const game_info_t* info,
 
     for (int endpoint=0; endpoint<g_options.search_max_endpoint; ++endpoint) {
 
-      int sign = (endpoint == 0 ? 1 : -1);
-      int free_dir = -1;
-      int num_free = 0;
-
       for (int dir=0; dir<4; ++dir) {
 
         pos_t neighbor_pos = pos_offset_pos(info, state->pos[color][endpoint], dir);
@@ -1547,9 +1550,6 @@ int game_find_forced(const game_info_t* info,
 
         if (state->cells[neighbor_pos] == 0) {
 
-          free_dir = dir;
-          ++num_free;
-          
           if (game_is_forced(info, state, color, endpoint, neighbor_pos)) {
 
             *forced_color = color;
@@ -1563,15 +1563,6 @@ int game_find_forced(const game_info_t* info,
         }
 
       } // for each neighbor
-
-      if (0 && num_free == 1) { // TODO: figure out whether to enable this?
-
-        *forced_color = color;
-        *forced_dir = free_dir;
-        *forced_endpoint = endpoint;
-        return 1;
-
-      }
       
     }
   }
@@ -1943,8 +1934,6 @@ int game_check_chokepoint(const game_info_t* info,
                           int x, int y) {
 
 
-  pos_t pos = pos_from_coords(x, y);
-
   // Make the proposed move.
   game_state_t state_copy = *state;
   game_make_move(info, &state_copy, color, dir, endpoint);
@@ -2148,8 +2137,6 @@ tree_node_t* game_validate_ff(const game_info_t* info,
     if (game_find_forced(info, node_state,
                          &color, &dir, &endpoint)) {
 
-      cell_t move = cell_create(TYPE_PATH, color, dir);
-
       if (!game_can_move(info, node_state, color, dir, endpoint)) {
         goto unalloc_return_0;
       }
@@ -2226,11 +2213,8 @@ int game_search(const game_info_t* info,
 
   queue_t q = queue_create(max_nodes);
 
-
   int result = SEARCH_IN_PROGRESS;
   const tree_node_t* solution_node = NULL;
-
-  uint8_t rmap[MAX_CELLS];
 
   double start = now();
 
@@ -2340,8 +2324,6 @@ int game_search(const game_info_t* info,
       }
     } 
 
-
-
     double storage_mb = (storage.count * (double)sizeof(tree_node_t) / MEGABYTE);
 
     printf("\nsearch %s after %'.3f seconds and %'zu nodes (%'.2f MB)\n",
@@ -2378,13 +2360,17 @@ int game_search(const game_info_t* info,
   
 }
 
+//////////////////////////////////////////////////////////////////////
+// Command line usage
+
 void usage(FILE* fp, int exitcode) {
 
   fprintf(fp,
-          "usage: flow_solver [OPTIONS] BOARD1.txt [-H hint1.txt] [...]\n\n"
+          "usage: flow_solver [ OPTIONS ] BOARD1.txt [ -H HINT1.txt ] [ -o ORDER1 ]\n"
+          "                   [ BOARD2.txt [ -H HINT2.txt ] [ -o ORDER2 ] [ ... ] ]\n\n"
           "Display options:\n\n"
           "  -q, --quiet             Reduce output\n"
-          "  -D, --diagnostics       Display nodes when storage exceeded\n"
+          "  -D, --diagnostics       Print diagnostics when search unsuccessful\n"
           "  -A, --no-animation      Disable animating solution\n"
           "  -F, --fast              Speed up animation 4x\n"
 #ifndef _WIN32          
@@ -2400,7 +2386,6 @@ void usage(FILE* fp, int exitcode) {
           "\n"
           "Color ordering options:\n\n"
           "  -a, --no-autosort       Disable auto-sort of color order\n"
-          "  -o, --order ORDER       Set color order on command line\n"
           "  -r, --randomize         Shuffle order of colors before solving\n"
           "  -f, --forced            Disable ordering forced moved first\n"
           "  -c, --constrained       Disable order by most constrained\n"
@@ -2410,6 +2395,9 @@ void usage(FILE* fp, int exitcode) {
           "  -B, --bfs               Run breadth-first search\n"
           "  -n, --max-nodes N       Restrict storage to N nodes\n"
           "  -m, --max-storage N     Restrict storage to N MB (default %'g)\n"
+          "\n"
+          "Options affecting a single input file:\n\n"
+          "  -o, --order ORDER       Set color order on command line\n"
           "  -H, --hint HINTFILE     Provide hint for previous board.\n"
           "\n"
           "Help:\n\n"
@@ -2437,10 +2425,28 @@ int exists(const char* fn) {
 }
 
 //////////////////////////////////////////////////////////////////////
+//
+
+const char* get_argument(int argc, char** argv, int* i) {
+
+  assert(*i < argc);
+  
+  if ((*i)+1 == argc) {
+    fprintf(stderr, "%s needs argument\n", argv[*i]);
+    usage(stderr, 1);
+  }
+
+  return argv[++(*i)];
+  
+  
+}
+
+//////////////////////////////////////////////////////////////////////
 // Parse command-line options
 
 size_t parse_options(int argc, char** argv,
                      const char** input_files,
+                     const char** user_orders,
                      const char** hint_files) {
   
   size_t num_inputs = 0;
@@ -2449,107 +2455,139 @@ size_t parse_options(int argc, char** argv,
     fprintf(stderr, "not enough args!\n\n");
     usage(stderr, 1);
   }
-  
+
+  typedef struct flag_options_struct {
+    int short_char;
+    const char* long_string;
+    int* dst_flag;
+    int dst_value;
+  } flag_options_t;
+
+  flag_options_t options[] = {
+    { 'q', "quiet",         &g_options.display_quiet, 1 },
+    { 'D', "diagnostics",   &g_options.display_diagnostics, 1 },
+    { 'A', "animation",     &g_options.display_animate, 0 },
+    { 'F', "fast",          &g_options.display_fast, 1 },
+#ifndef _WIN32    
+    { 'C', "color",         &g_options.display_color, 1 },
+#endif
+    { 't', "touch",         &g_options.cost_check_touch, 0 },
+    { 's', "stranded",      &g_options.cost_check_stranded, 0 },
+    { 'd', "deadends",      &g_options.cost_check_deadends, 0 },
+    { 'b', "bottlenecks",   &g_options.cost_check_bottlenecks, 0 },
+    { 'e', "no-explore",    &g_options.cost_penalize_exploration, 1 },
+    { 'a', "no-autosort",   &g_options.order_autosort_colors, 0 },
+    { 'o', "order",         0, 0 },
+    { 'r', "randomize",     &g_options.order_random, 1 },
+    { 'f', "forced",        &g_options.order_forced_first, 0 },
+    { 'c', "constrained",   &g_options.order_most_constrained, 0 },
+    { 'O', "no-outside-in", &g_options.search_outside_in, 0 },
+    { 'B', "bfs",           &g_options.search_astar_like, 0 },
+    { 'n', "max-nodes",     0, 0 },
+    { 'm', "max-storage",   0, 0 },
+    { 'H', "hint",          0, 0 },
+    { 'h', "help",          0, 0 },
+    { 0, 0, 0, 0 }
+  };
+
   for (int i=1; i<argc; ++i) {
     
     const char* opt = argv[i];
-    
-    if (!strcmp(opt, "-q") || !strcmp(opt, "--quiet")) {
-      g_options.display_quiet = 1;
-    } else if (!strcmp(opt, "-D") || !strcmp(opt, "--diagnostics")) {
-      g_options.display_diagnostics = 1;
-    } else if (!strcmp(opt, "-A") || !strcmp(opt, "--no-animation")) {
-      g_options.display_animate = 0;
-    } else if (!strcmp(opt, "-F") || !strcmp(opt, "--fast")) {
-      g_options.display_speedup = 4.0;
-#ifndef _WIN32      
-    } else if (!strcmp(opt, "-C") || !strcmp(opt, "--color")) {
-      g_options.display_color = 1;
-#endif
-    } else if (!strcmp(opt, "-t") || !strcmp(opt, "--touch")) {
-      g_options.cost_check_touch = 0;
-    } else if (!strcmp(opt, "-s") || !strcmp(opt, "--stranded")) {
-      g_options.cost_check_stranded = 0;
-    } else if (!strcmp(opt, "-d") || !strcmp(opt, "--deadends")) {
-      g_options.cost_check_deadends = 0;
-    } else if (!strcmp(opt, "-b") || !strcmp(opt, "--bottlenecks")) {
-      g_options.cost_check_bottlenecks = 0;
-    } else if (!strcmp(opt, "-e") || !strcmp(opt, "--no-explore")) {
-      g_options.cost_penalize_exploration = 1;
-    } else if (!strcmp(opt, "-a") || !strcmp(opt, "--no-autosort")) {
-      g_options.order_autosort_colors = 0;
-    } else if (!strcmp(opt, "-o") || !strcmp(opt, "--order")) {
-      if (i+1 == argc) {
-        fprintf(stderr, "%s needs argument\n", opt);
-        usage(stderr, 1);
-      }
-      g_options.order_user = argv[++i];
-    } else if (!strcmp(opt, "-r") || !strcmp(opt, "--randomize")) {
-      g_options.order_random = 1;
-    } else if (!strcmp(opt, "-f") || !strcmp(opt, "--forced")) {
-      g_options.order_forced_first = 0;
-    } else if (!strcmp(opt, "-c") || !strcmp(opt, "--constrained")) {
-      g_options.order_most_constrained = 0;
-    } else if (!strcmp(opt, "-O") || !strcmp(opt, "--no-outside-in")) {
-      g_options.search_outside_in = 0;
-    } else if (!strcmp(opt, "-B") || !strcmp(opt, "--bfs")) {
-      g_options.search_astar_like = 0;
-    } else if (!strcmp(opt, "-n") || !strcmp(opt, "--max-nodes")) {
-      
-      if (i+1 == argc) {
-        fprintf(stderr, "%s needs argument\n", opt);
-        usage(stderr, 1);
-      }
-      
-      opt = argv[++i];
-      
-      char* endptr;
-      g_options.search_max_nodes = strtol(opt, &endptr, 10);
-      if (!endptr || *endptr) {
-        fprintf(stderr, "error parsing max nodes %s on command line!\n\n", opt);
-        usage(stderr, 1);
-      }
-      
-    } else if (!strcmp(opt, "-m") || !strcmp(opt, "--max-storage")) {
+    int match_id = -1;
 
-      if (i+1 == argc) {
-        fprintf(stderr, "%s needs argument\n", opt);
-        usage(stderr, 1);
-      }
-      
-      opt = argv[++i];
-      
-      char* endptr;
-      g_options.search_max_mb = strtod(opt, &endptr);
-      if (!endptr || *endptr || g_options.search_max_mb <= 0) {
-        fprintf(stderr, "error parsing max storage %s on command line!\n\n", opt);
-        usage(stderr, 1);
+    for (int k=0; options[k].short_char; ++k) {
+
+      if (options[k].short_char > 0) {
+        char cur_short[3] = "-?";
+        cur_short[1] = options[k].short_char;
+        if (!strcmp(opt, cur_short)) {
+          match_id = k;
+          break;
+        }
       }
 
+      if (options[k].long_string) {
+        char cur_long[1024];
+        snprintf(cur_long, 1024, "--%s", options[k].long_string);
+        if (!strcmp(opt, cur_long)) {
+          match_id = k;
+          break;
+        }
+      }
+
+    }
+
+    if (match_id >= 0) {
+
+      int match_short_char = options[match_id].short_char;
+
+      if (options[match_id].dst_flag) {
+        
+        *options[match_id].dst_flag = options[match_id].dst_value;
+                
+      } else if (match_short_char == 'n') {
+
+        opt = get_argument(argc, argv, &i);
       
-    } else if (!strcmp(opt, "-h") || !strcmp(opt, "--help")) {
-      usage(stdout, 0);
-    } else if (!strcmp(opt, "-H") || !strcmp(opt, "--hint")) {
-      if (!num_inputs) {
-        fprintf(stderr, "%s before any board specified\n", opt);
-      } else if (i+1 == argc) {
-        fprintf(stderr, "%s needs argument\n", opt);
+        char* endptr;
+        g_options.search_max_nodes = strtol(opt, &endptr, 10);
+      
+        if (!endptr || *endptr) {
+          fprintf(stderr, "error parsing max nodes %s on command line!\n\n", opt);
+          usage(stderr, 1);
+        }
+
+      } else if (match_short_char == 'm') {
+
+        opt = get_argument(argc, argv, &i);
+        
+        char* endptr;
+        g_options.search_max_mb = strtod(opt, &endptr);
+        
+        if (!endptr || *endptr || g_options.search_max_mb <= 0) {
+          fprintf(stderr, "error parsing max storage %s on command line!\n\n", opt);
+          usage(stderr, 1);
+        }
+        
+      } else if (match_short_char == 'H') {
+
+        if (!num_inputs) {
+          fprintf(stderr, "%s before any board specified\n", opt);
+        }
+      
+        opt = get_argument(argc, argv, &i);
+      
+        if (!exists(opt)) {
+          fprintf(stderr, "error opening %s\n", opt);
+          exit(1);
+        }
+      
+        hint_files[num_inputs-1] = opt;
+
+      } else if (match_short_char == 'o') {
+
+        if (!num_inputs) {
+          fprintf(stderr, "%s before any board specified\n", opt);
+        }
+
+        user_orders[num_inputs-1] = get_argument(argc, argv, &i);
+        
+      } else { // should not happen
+
+        fprintf(stderr, "unrecognized option: %s\n\n", opt);
         usage(stderr, 1);
+
       }
-      opt = argv[++i];
-      if (!exists(opt)) {
-        fprintf(stderr, "error opening %s\n", opt);
-        exit(1);
-      }
-      hint_files[num_inputs-1] = opt;
+
     } else if (exists(opt)) {
+
       input_files[num_inputs++] = opt;
-    } else if (opt[0] == '-') {
+
+    } else {
+
       fprintf(stderr, "unrecognized option: %s\n\n", opt);
       usage(stderr, 1);
-    } else {
-      fprintf(stderr, "error opening %s\n", opt);
-      exit(1);
+      
     }
     
   }
@@ -2574,7 +2612,7 @@ int main(int argc, char** argv) {
   g_options.display_diagnostics = 0;
   g_options.display_animate = 1;
   g_options.display_color = terminal_has_color();
-  g_options.display_speedup = 1.0;
+  g_options.display_fast = 0;
   
   g_options.cost_check_touch = 1;
   g_options.cost_check_stranded = 1;
@@ -2585,7 +2623,6 @@ int main(int argc, char** argv) {
   g_options.order_autosort_colors = 1;
   g_options.order_most_constrained = 1;
   g_options.order_forced_first = 1;
-  g_options.order_user = NULL;
 
   g_options.search_outside_in = 1;
   g_options.search_astar_like = 1;
@@ -2594,14 +2631,18 @@ int main(int argc, char** argv) {
   g_options.search_max_endpoint = 1;
 
   const char* input_files[argc];
+  const char* user_orders[argc];
   const char* hint_files[argc];
 
-  memset(input_files, 0, argc * sizeof(const char*));
-  memset(hint_files,  0, argc * sizeof(const char*));
+  memset(input_files, 0, sizeof(input_files));
+  memset(user_orders, 0, sizeof(user_orders));
+  memset(hint_files,  0, sizeof(hint_files));
   
   size_t num_inputs = parse_options(argc, argv,
-                                    input_files, hint_files);
-  
+                                    input_files,
+                                    user_orders,
+                                    hint_files);
+
   queue_setup();
 
   game_info_t  info;
@@ -2624,6 +2665,7 @@ int main(int argc, char** argv) {
 
     const char* input_file = input_files[i];
     const char* hint_file = hint_files[i];
+    const char* user_order = user_orders[i];
   
     if (game_read(input_file, &info, &state)) {
 
@@ -2646,8 +2688,8 @@ int main(int argc, char** argv) {
         }
         printf("\n");
       }
-      
-      game_order_colors(&info, &state);
+
+      game_order_colors(&info, &state, user_order);
 
       double elapsed;
       size_t nodes;
