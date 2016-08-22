@@ -2651,10 +2651,12 @@ int main(int argc, char** argv) {
 
     double overall_elapsed = 0;
     size_t overall_nodes = 0;
-
+    int types = 0;
+    
     for (int i=0; i<3; ++i) {
       overall_elapsed += total_elapsed[i];
       overall_nodes += total_nodes[i];
+      if (total_nodes[i]) { ++types; }
     }
 
     if (!g_options.display_quiet) {
@@ -2663,31 +2665,41 @@ int main(int argc, char** argv) {
              "***********************************\n\n");
 
       for (int i=0; i<3; ++i) {
-        printf("%'d %s searches took a total of %'.3f seconds and %'zu nodes\n",
-               total_count[i], SEARCH_RESULT_STRINGS[i],
-               total_elapsed[i], total_nodes[i]);
+        if (total_count[i]) {
+          printf("%'d %s searches took a total of %'.3f seconds and %'zu nodes\n",
+                 total_count[i], SEARCH_RESULT_STRINGS[i],
+                 total_elapsed[i], total_nodes[i]);
+        }
       }
 
-      printf("\noverall, %'d searches took a total of %'.3f seconds and %'zu nodes\n",
-             boards, overall_elapsed, overall_nodes);
+      if (types > 1) {
+        printf("\n");
+        printf("overall, %'d searches took a total of %'.3f seconds and %'zu nodes\n",
+               boards, overall_elapsed, overall_nodes);
+      }
       
     } else {
       
       printf("\n");
       for (int i=0; i<3; ++i) {
-        printf("%*s%3d total %c %'12.3f %'12zu\n",
-               max_width-9, "",
-               total_count[i],
-               SEARCH_RESULT_CHARS[i],
-               total_elapsed[i],
-               total_nodes[i]);
+        if (total_count[i]) {
+          printf("%*s%3d total %c %'12.3f %'12zu\n",
+                 max_width-9, "",
+                 total_count[i],
+                 SEARCH_RESULT_CHARS[i],
+                 total_elapsed[i],
+                 total_nodes[i]);
+        }
       }
-      printf("\n");
-      printf("%*s%3d overall %'12.3f %'12zu\n",
-             max_width-9, "",
-             boards,
-             overall_elapsed,
-             overall_nodes);
+
+      if (types > 1) {
+        printf("\n");
+        printf("%*s%3d overall %'12.3f %'12zu\n",
+               max_width-9, "",
+               boards,
+               overall_elapsed,
+               overall_nodes);
+      }
       
     }
     
