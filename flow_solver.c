@@ -2366,8 +2366,8 @@ int game_search(const game_info_t* info,
 void usage(FILE* fp, int exitcode) {
 
   fprintf(fp,
-          "usage: flow_solver [ OPTIONS ] BOARD1.txt [ -H HINT1.txt ] [ -o ORDER1 ]\n"
-          "                   [ BOARD2.txt [ -H HINT2.txt ] [ -o ORDER2 ] [ ... ] ]\n\n"
+          "usage: flow_solver [ OPTIONS ] [ -H HINT1.txt ] [ -o ORDER1 ] BOARD1.txt\n"
+          "                   [ [ -H HINT2.txt ] [ -o ORDER2 ] BOARD2.txt [ ... ] ]\n\n"
           "Display options:\n\n"
           "  -q, --quiet             Reduce output\n"
           "  -D, --diagnostics       Print diagnostics when search unsuccessful\n"
@@ -2396,7 +2396,7 @@ void usage(FILE* fp, int exitcode) {
           "  -n, --max-nodes N       Restrict storage to N nodes\n"
           "  -m, --max-storage N     Restrict storage to N MB (default %'g)\n"
           "\n"
-          "Options affecting a single input file:\n\n"
+          "Options affecting the next input file:\n\n"
           "  -o, --order ORDER       Set color order on command line\n"
           "  -H, --hint HINTFILE     Provide hint for previous board.\n"
           "\n"
@@ -2551,10 +2551,6 @@ size_t parse_options(int argc, char** argv,
         
       } else if (match_short_char == 'H') {
 
-        if (!num_inputs) {
-          fprintf(stderr, "%s before any board specified\n", opt);
-        }
-      
         opt = get_argument(argc, argv, &i);
       
         if (!exists(opt)) {
@@ -2562,15 +2558,11 @@ size_t parse_options(int argc, char** argv,
           exit(1);
         }
       
-        hint_files[num_inputs-1] = opt;
+        hint_files[num_inputs] = opt;
 
       } else if (match_short_char == 'o') {
 
-        if (!num_inputs) {
-          fprintf(stderr, "%s before any board specified\n", opt);
-        }
-
-        user_orders[num_inputs-1] = get_argument(argc, argv, &i);
+        user_orders[num_inputs] = get_argument(argc, argv, &i);
         
       } else { // should not happen
 
@@ -2593,8 +2585,14 @@ size_t parse_options(int argc, char** argv,
   }
 
   if (!num_inputs) {
-    fprintf(stderr, "no input file!\n\n");
-    usage(stderr, 1);
+    fprintf(stderr, "no input files\n\n");
+    exit(1);
+  } else if (user_orders[num_inputs]) {
+    fprintf(stderr, "order specified *after* last input file!\n\n");
+    exit(1);
+  } else if (hint_files[num_inputs]) {
+    fprintf(stderr, "hint file specified *after* last input file!\n\n");
+    exit(1);
   }
 
   return num_inputs;
