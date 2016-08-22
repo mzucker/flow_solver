@@ -2125,15 +2125,12 @@ void game_diagnostics(const game_info_t* info,
   
 }
 
-tree_node_t* game_validate(const game_info_t* info,
+tree_node_t* game_validate_ff(const game_info_t* info,
                            tree_node_t* node,
                            node_storage_t* storage) {
 
   const game_state_t* node_state = &node->state;
   
-  //printf("validating this state:\n");
-  //game_print(info, node_state);
-
   if (g_options.cost_check_stranded ||
       g_options.cost_check_deadends) {
     
@@ -2145,7 +2142,6 @@ tree_node_t* game_validate(const game_info_t* info,
          (g_options.cost_check_deadends &&
           game_regions_deadends(info, node_state, rcount, rmap)) ) {
 
-      //printf("nope, stranded! killing node %p\n", node);
       goto unalloc_return_0;
             
     }
@@ -2155,7 +2151,6 @@ tree_node_t* game_validate(const game_info_t* info,
   if (g_options.cost_check_bottlenecks && 
       game_check_bottleneck(info, node_state)) {
 
-    //printf("nope, bottlenecked! killing node %p\n", node);
     goto unalloc_return_0;
     
   }
@@ -2169,26 +2164,20 @@ tree_node_t* game_validate(const game_info_t* info,
 
       cell_t move = cell_create(TYPE_PATH, color, dir);
 
-      //printf("there is a forced move of %s at endpoint %d\n",
-      //color_cell_str(info, move), endpoint);
-
       if (!game_can_move(info, node_state, color, dir, endpoint)) {
-        //printf("...but it is not allowed, so killing node %p\n", node);
         goto unalloc_return_0;
       }
       
       tree_node_t* forced_child = node_create(storage, node, info,
                                               node_state);
 
-      //printf("ok, making forced move...\n");
       game_make_move(info, &forced_child->state,
                      color, dir, endpoint);
 
       node_update_costs(info, forced_child, 0);
-      forced_child = game_validate(info, forced_child, storage);
+      forced_child = game_validate_ff(info, forced_child, storage);
       
       if (!forced_child) {
-        //printf("forced move did not validate, killing %p\n", node);
         goto unalloc_return_0;
       } else {
         return forced_child;
@@ -2198,7 +2187,6 @@ tree_node_t* game_validate(const game_info_t* info,
 
   }
                                
-  //printf("node %p validated ok\n", node);
   return node;
 
  unalloc_return_0:
@@ -2251,7 +2239,7 @@ int game_search(const game_info_t* info,
 
   double start = now();
 
-  root = game_validate(info, root, &storage);
+  root = game_validate_ff(info, root, &storage);
 
   if (!root) {
     result = SEARCH_UNREACHABLE;
@@ -2273,8 +2261,8 @@ int game_search(const game_info_t* info,
     
     int endpoint = 0;
     int color = game_next_move_color(info, parent_state, &endpoint);
+    int hint_dir = -1;
 
-    /*
     if (hint) {
       pos_t pos = parent_state->pos[color][endpoint];
       if (hint[pos] == color || hint[pos] >= info->num_colors) {
@@ -2289,19 +2277,14 @@ int game_search(const game_info_t* info,
           }
         }
         if (hint_pos != INVALID_POS) {
-          int dir = dir_from_pos(pos, hint_pos, endpoint);
-          dirs[0] = dir;
-          num_dirs = 1;
-          used_hint = 1;
-          int hint_x, hint_y;
-          pos_get_coords(hint_pos, &hint_x, &hint_y);
+          hint_dir = dir_from_pos(pos, hint_pos, endpoint);
         }
       }
     }
-    */
-
       
     for (int dir=0; dir<4; ++dir) {
+
+      if (hint_dir >= 0 && dir != hint_dir) { continue; }
 
       if (game_can_move(info, &n->state,
                         color, dir, endpoint)) {
@@ -2334,7 +2317,7 @@ int game_search(const game_info_t* info,
       
         }
 
-        child = game_validate(info, child, &storage);
+        child = game_validate_ff(info, child, &storage);
         if (child) {
           queue_enqueue(&q, child);
         }
