@@ -91,7 +91,7 @@ typedef struct color_lookup_struct {
 typedef struct options_struct {
 
   int         display_quiet;
-  int         display_diagnose;
+  int         display_diagnostics;
   int         display_animate;
   int         display_color;
   double      display_speedup;
@@ -99,6 +99,7 @@ typedef struct options_struct {
   int         cost_check_touch;
   int         cost_check_stranded;
   int         cost_check_deadends;
+  int         cost_check_bottlenecks;
   int         cost_penalize_exploration;
   
   int         order_autosort_colors;
@@ -1297,7 +1298,8 @@ int game_regions_deadends(const game_info_t* info,
 int game_regions_stranded(const game_info_t* info,
                           const game_state_t* state,
                           size_t rcount,
-                          const uint8_t rmap[MAX_CELLS]) {
+                          const uint8_t rmap[MAX_CELLS],
+                          size_t chokepoint_color) {
 
   // For each region, we have bitflags to track whether current or
   // goal position is adjacent to the region. These get initted to 0.
@@ -1307,6 +1309,12 @@ int game_regions_stranded(const game_info_t* info,
   memset(cur_rflags, 0, sizeof(cur_rflags));
   memset(goal_rflags, 0, sizeof(goal_rflags));
 
+  int num_stranded = 0;
+  uint16_t colors_stranded = 0;
+
+  int for_chokepoint = chokepoint_color < info->num_colors;
+  int max_stranded = (for_chokepoint ? 2 : 1);
+
   // For each color, figure out which regions touch its current and
   // goal position, and make sure no color is "stranded"
   for (int color=0; color<info->num_colors; ++color) {
@@ -1314,7 +1322,7 @@ int game_regions_stranded(const game_info_t* info,
     uint16_t cflag = (1 << color);
 
     // No worries if completed:
-    if (state->completed & cflag) {
+    if ((state->completed & cflag) || color == chokepoint_color) {
       continue;
     }
 
@@ -1344,20 +1352,27 @@ int game_regions_stranded(const game_info_t* info,
     // There was no region that touched both current and goal,
     // unsolvable from here.
     if (r == rcount) {
-      return 1;
+      colors_stranded |= cflag;
+      if (++num_stranded >= max_stranded) {
+        return colors_stranded;
+      }
     }
 
   }
 
-  // For each region, make sure that there is at least one color whose
-  // current and goal positions touch it; otherwise, the region is
-  // stranded.
-  for (size_t r=0; r<rcount; ++r) {
-    if (!(cur_rflags[r] & goal_rflags[r])) {
-      return 1;
-    }
-  }
+  if (!for_chokepoint) {
 
+    // For each region, make sure that there is at least one color whose
+    // current and goal positions touch it; otherwise, the region is
+    // stranded.
+    for (size_t r=0; r<rcount; ++r) {
+      if (!(cur_rflags[r] & goal_rflags[r])) {
+        return -1;
+      }
+    }
+
+  }
+  
   // Everything a-ok.
   return 0;
   
@@ -1857,9 +1872,92 @@ void game_animate_solution(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
+//
+
+int game_is_free(const game_info_t* info,
+                 const game_state_t* state,
+                 int x, int y) {
+
+  if (x >= 0 && x <= (int)info->size &&
+      y >= 0 && y <= (int)info->size) {
+
+    return (state->cells[pos_from_coords(x,y)] == 0);
+
+  } else {
+ 
+    return 0;
+
+  }
+  
+}
+
+
+int game_check_chokepoint(const game_info_t* info,
+                          const game_state_t* state,
+                          int orig_color, int dir,
+                          int x, int y) {
+
+
+  pos_t pos = pos_from_coords(x, y);
+
+  game_state_t state_copy = *state;
+  game_make_move(info, &state_copy, orig_color, dir, 0);
+
+  uint8_t rmap[MAX_CELLS];
+  size_t rcount = game_build_regions(info, &state_copy, rmap);
+
+  int result = game_regions_stranded(info, &state_copy, rcount, rmap, orig_color);
+
+  if (result) {
+    return result;
+  }
+  
+  return 0;
+
+}
+
+int game_check_bottleneck(const game_info_t* info,
+                          const game_state_t* state) {
+
+  if (state->last_color >= info->num_colors) { return 0; }
+
+  int color = state->last_color;
+
+  pos_t pos = state->pos[color][0];
+  
+  int x0, y0;
+  pos_get_coords(pos, &x0, &y0);
+
+  for (int dir=0; dir<4; ++dir) {
+
+    int dx = DIR_DELTA[dir][0];
+    int dy = DIR_DELTA[dir][1];
+
+    int x1 = x0 + dx;
+    int y1 = y0 + dy;
+
+    int x2 = x1 + dx;
+    int y2 = y1 + dy;
+    
+    if (game_is_free(info, state, x1, y1) &&
+        !game_is_free(info, state, x2, y2)) {
+
+      int r = game_check_chokepoint(info, state, color, dir, x1, y1);
+
+      if (r) { return r; }
+      
+    }
+
+  }
+
+  return 0;
+
+}
+
+//////////////////////////////////////////////////////////////////////
 // Perform diagnostics on the given node
 
-void game_diagnose(const game_info_t* info,
+void game_diagnostics(const game_info_t* info,
                    const tree_node_t* node) {
 
   printf("\n###################################"
@@ -1890,7 +1988,7 @@ void game_diagnose(const game_info_t* info,
 
     size_t rcount = game_build_regions(info, &state_copy, rmap);
 
-    if (game_regions_stranded(info, &state_copy, rcount, rmap)) {
+    if (game_regions_stranded(info, &state_copy, rcount, rmap, MAX_COLORS)) {
       printf("stranded -- state should be pruned!\n");
       printf("game regions:\n\n");
       game_print_regions(info, &state_copy, rmap);
@@ -1903,6 +2001,19 @@ void game_diagnose(const game_info_t* info,
       game_print_regions(info, &state_copy, rmap);
       break;
     }
+
+    int r = game_check_bottleneck(info, &state_copy);
+    if (r) {
+      printf("chokepoint for ");
+      for (size_t color=0; color<info->num_colors; ++color) {
+        if (r & (1 << color)) {
+          printf("%s", color_name_str(info, color));
+        }
+      }
+      printf(" -- state should be pruned!\n");
+      break;
+    }
+    
 
     int color, dir, endpoint;
     forced = game_find_forced(info, &state_copy,
@@ -1927,9 +2038,6 @@ void game_diagnose(const game_info_t* info,
     }
     
   }
-  
-
-  
   
 }
 
@@ -2041,7 +2149,7 @@ void game_search(const game_info_t* info,
           size_t rcount = game_build_regions(info, child_state, rmap);
 
           if ( (g_options.cost_check_stranded &&
-                game_regions_stranded(info, child_state, rcount, rmap)) ||
+                game_regions_stranded(info, child_state, rcount, rmap, MAX_COLORS)) ||
                (g_options.cost_check_deadends &&
                 game_regions_deadends(info, child_state, rcount, rmap)) ) {
 
@@ -2050,6 +2158,30 @@ void game_search(const game_info_t* info,
             
           }
 
+        }
+
+        if (g_options.cost_check_bottlenecks) {
+
+          int r = game_check_bottleneck(info, child_state);
+
+          if (r) {
+
+            if (!g_options.display_quiet) {
+              game_print(info, child_state);
+              printf("chokepoint for ");
+              for (size_t color=0; color<info->num_colors; ++color) {
+                if (r & (1 << color)) {
+                  printf("%s", color_name_str(info, color));
+                }
+              }
+              printf("\n\n");
+            }
+            
+            node_storage_unalloc(&storage, child);
+            continue;
+
+          }
+          
         }
           
         queue_enqueue(&q, child);
@@ -2118,15 +2250,15 @@ void game_search(const game_info_t* info,
              solution_node->cost_to_come,
              solution_node->cost_to_go);
 
-    } else if (result == SEARCH_FULL && g_options.display_diagnose) {
+    } else if (result == SEARCH_FULL && g_options.display_diagnostics) {
 
       printf("here's the lowest cost thing on the queue:\n");
 
-      game_diagnose(info, queue_peek(&q));
+      game_diagnostics(info, queue_peek(&q));
 
       printf("\nand here's the last node allocated:\n");
 
-      game_diagnose(info, storage.start+storage.count-1);
+      game_diagnostics(info, storage.start+storage.count-1);
       
     }
 
@@ -2143,7 +2275,7 @@ void usage(FILE* fp, int exitcode) {
           "usage: flow_solver [OPTIONS] BOARD1.txt [BOARD2.txt [...]]\n\n"
           "Display options:\n\n"
           "  -q, --quiet             Reduce output\n"
-          "  -D, --diagnose          Display nodes when storage exceeded\n"
+          "  -D, --diagnostics       Display nodes when storage exceeded\n"
           "  -A, --no-animation      Disable animating solution\n"
           "  -F, --fast              Speed up animation 4x\n"
 #ifndef _WIN32          
@@ -2210,8 +2342,8 @@ size_t parse_options(int argc, char** argv, const char** input_files) {
     
     if (!strcmp(opt, "-q") || !strcmp(opt, "--quiet")) {
       g_options.display_quiet = 1;
-    } else if (!strcmp(opt, "-D") || !strcmp(opt, "--diagnose")) {
-      g_options.display_diagnose = 1;
+    } else if (!strcmp(opt, "-D") || !strcmp(opt, "--diagnostics")) {
+      g_options.display_diagnostics = 1;
     } else if (!strcmp(opt, "-A") || !strcmp(opt, "--no-animation")) {
       g_options.display_animate = 0;
     } else if (!strcmp(opt, "-F") || !strcmp(opt, "--fast")) {
@@ -2308,7 +2440,7 @@ int main(int argc, char** argv) {
   setlocale(LC_NUMERIC, "");
 
   g_options.display_quiet = 0;
-  g_options.display_diagnose = 0;
+  g_options.display_diagnostics = 0;
   g_options.display_animate = 1;
   g_options.display_color = terminal_has_color();
   g_options.display_speedup = 1.0;
@@ -2319,6 +2451,7 @@ int main(int argc, char** argv) {
   g_options.search_astar_like = 1;
   g_options.cost_check_stranded = 1;
   g_options.cost_check_deadends = 1;
+  g_options.cost_check_bottlenecks = 1;
   g_options.cost_penalize_exploration = 0;
   g_options.order_user = NULL;
   g_options.search_max_nodes = 0;
