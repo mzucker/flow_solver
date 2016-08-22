@@ -8,10 +8,6 @@
 #include <math.h>
 #include <time.h>
 
-#ifdef NDEBUG
-#undef NDEBUG
-#endif
-
 #ifndef _WIN32
 #include <unistd.h>
 #include <sys/time.h>
@@ -2115,6 +2111,10 @@ tree_node_t* game_validate_ff(const game_info_t* info,
 
   assert(node == storage->start+storage->count-1);
 
+
+  //printf("validating node %p\n", node);
+  //game_print(info, &node->state);
+  
   const game_state_t* node_state = &node->state;
   
   if (g_options.cost_check_stranded ||
@@ -2178,11 +2178,13 @@ tree_node_t* game_validate_ff(const game_info_t* info,
     }
 
   }
-                               
+
+  //printf("node %p seems fine!\n", node);
   return node;
 
  unalloc_return_0:
 
+  //printf("node %p failed to validate\n", node);
   assert(node == storage->start+storage->count-1);
   node_storage_unalloc(storage, node);
   return 0;
@@ -2259,7 +2261,7 @@ int game_search(const game_info_t* info,
     if (hint) {
       pos_t pos = parent_state->pos[color][endpoint];
       if (hint[pos] == color || hint[pos] >= info->num_colors) {
-        for (int dir=0; dir<4; ++n) {
+        for (int dir=0; dir<4; ++dir) {
           pos_t neighbor_pos = pos_offset_pos(info, pos, dir);
           if (neighbor_pos != INVALID_POS && 
               parent_state->cells[neighbor_pos] == 0 &&
