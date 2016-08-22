@@ -130,6 +130,9 @@ typedef struct game_info_struct {
 
   // Number of colors present
   size_t num_colors;
+
+  // Color table for looking up color ID
+  uint8_t color_tbl[128];
   
 } game_info_t;
 
@@ -402,11 +405,12 @@ int dir_from_pos(pos_t a, pos_t b, int reverse) {
 
   for (dir=0; dir<4; ++dir) {
     if (DIR_DELTA[dir][2] == delta*sign) {
-      break;
+      return dir;
     }
   }
 
-  return dir;
+  assert(0 && "unreachable");
+  return -1;
 
 }
 
@@ -763,17 +767,20 @@ int game_read(const char* filename,
 
   char buf[MAX_SIZE+2];
 
-  char color_lookup[MAX_COLORS];
 
-  memset(color_lookup, 0, MAX_COLORS);
+  memset(info->color_tbl, 0xff, sizeof(info->color_tbl));
 
   while (info->size == 0 || y < info->size) {
 
     char* s = fgets(buf, MAX_SIZE+1, fp);
     size_t l = s ? strlen(s) : 0;
     
-    if (!s || s[l-1] != '\n') {
+    if (!s) {
       fprintf(stderr, "%s:%zu: unexpected EOF\n", filename, y+1);
+      fclose(fp);
+      return 0;
+    } else if (s[l-1] != '\n') {
+      fprintf(stderr, "%s:%zu line too long\n", filename, y+1);
       fclose(fp);
       return 0;
     }
@@ -807,18 +814,13 @@ int game_read(const char* filename,
 
         pos_t pos = pos_from_coords(x, y);
         assert(pos < MAX_CELLS);
-        
-        // find it
-        int color;
-        for (color=0; color<info->num_colors; ++color) {
-          if (color_lookup[color] == c) {
-            break;
-          }
-        }
 
+        int color = info->color_tbl[c];
         
-        if (color == info->num_colors) {
+        if (color >= info->num_colors) {
 
+          color = info->num_colors;
+          
           if (info->num_colors == MAX_COLORS) {
             fprintf(stderr, "%s:%zu: can't use color %c"
                     "- too many colors!\n",
@@ -827,7 +829,7 @@ int game_read(const char* filename,
             return 0;
 
           }
-
+          
           int id = get_color_id(c);
           if (id < 0) {
             fprintf(stderr, "%s:%zu: unrecognized color %c\n",
@@ -840,7 +842,7 @@ int game_read(const char* filename,
           info->color_order[color] = color;
           
           ++info->num_colors;
-          color_lookup[color] = c;
+          info->color_tbl[c] = color;
           state->pos[color][0] = pos;
           state->cells[pos] = cell_create(TYPE_INIT, color, 0);
 
@@ -877,11 +879,9 @@ int game_read(const char* filename,
 
     if (state->pos[color][1] == INVALID_POS) {
       game_print(info, state);
-      fprintf(stderr, "\n\n%s: color %s%c%s has start but no end\n",
+      fprintf(stderr, "\n\n%s: color %s has start but no end\n",
               filename,
-              set_color_str(info->color_ids[color]),
-              color_lookup[color],
-              reset_color_str());
+              color_name_str(info, color));
       return 0;
     }
     
@@ -889,6 +889,54 @@ int game_read(const char* filename,
 
   return 1;
 
+}
+
+//////////////////////////////////////////////////////////////////////
+// Read hint file
+
+int game_read_hint(const game_info_t* info,
+                   const game_state_t* state,
+                   const char* filename,
+                   uint8_t hint[MAX_CELLS]) {
+  
+  memset(hint, 0xff, MAX_CELLS);
+
+  FILE* fp = fopen(filename, "r");
+
+  if (!fp) {
+    fprintf(stderr, "error opening %s\n", filename);
+    return 0;
+  }
+
+  char buf[MAX_SIZE+2];
+
+  for (size_t y=0; y<info->size; ++y) {
+    char* s = fgets(buf, info->size+2, fp);
+    if (!s) { break; }
+    size_t l = strlen(s);
+    if (l > info->size+1 || s[l-1] != '\n') {
+      fprintf(stderr, "%s:%zu: line too long!\n", filename, y+1);
+      fclose(fp);
+      return 0;
+    }
+    for (size_t x=0; x<l-1; ++x) {
+      uint8_t c = buf[x];
+      if (isalpha(c)) {
+        int color = c > 127 ? 0xff : info->color_tbl[c];
+        if (color >= info->num_colors) {
+          fprintf(stderr, "%s:%zu: color %c not found!\n", filename, y+1, c);
+          fclose(fp);
+          return 0;
+        }
+        int pos = pos_from_coords(x, y);
+        hint[pos] = color;
+      }
+    }
+  }
+
+  fclose(fp);
+  return 1;
+  
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1504,6 +1552,7 @@ int game_find_forced(const game_info_t* info,
             int dir = dir_from_pos(state->pos[color][endpoint],
                                    neighbor_pos, endpoint);
 
+
             *forced_color = color;
             *forced_dir = dir;
             *forced_endpoint = endpoint;
@@ -2061,6 +2110,7 @@ void game_diagnostics(const game_info_t* info,
 
 void game_search(const game_info_t* info,
                  const game_state_t* init_state,
+                 const uint8_t* hint,
                  const char* input_filename) {
 
   size_t max_nodes = g_options.search_max_nodes;
@@ -2115,11 +2165,37 @@ void game_search(const game_info_t* info,
     int num_dirs = 4;
     int dirs[4] = { 0, 1, 2, 3 };
     int forced = 0;
+    int used_hint = 0;
 
     if (g_options.order_forced_first) {
+
       forced = game_find_forced(info, parent_state,
                                 &color, dirs, &endpoint);
+
       if (forced) { num_dirs = 1; }
+
+    }
+
+    if (hint) {
+      pos_t pos = parent_state->pos[color][endpoint];
+      if (hint[pos] == color || hint[pos] >= info->num_colors) {
+        pos_t neighbors[4];
+        int num_neighbors = pos_get_neighbors(info, pos, neighbors);
+        pos_t hint_pos = INVALID_POS;
+        for (int n=0; n<4; ++n) {
+          if (parent_state->cells[neighbors[n]] == 0 &&
+              hint[neighbors[n]] == color) {
+            hint_pos = neighbors[n];
+            break;
+          }
+        }
+        if (hint_pos) {
+          int dir = dir_from_pos(pos, hint_pos, endpoint);
+          dirs[0] = dir;
+          num_dirs = 1;
+          used_hint = 1;
+        }
+      }
     }
       
     for (int d=0; d<num_dirs; ++d) {
@@ -2128,7 +2204,7 @@ void game_search(const game_info_t* info,
 
       if (game_can_move(info, &n->state,
                         color, dir, endpoint)) {
-          
+
         tree_node_t* child = node_create(&storage, n, info,
                                          parent_state);
 
@@ -2289,7 +2365,7 @@ void game_search(const game_info_t* info,
 void usage(FILE* fp, int exitcode) {
 
   fprintf(fp,
-          "usage: flow_solver [OPTIONS] BOARD1.txt [BOARD2.txt [...]]\n\n"
+          "usage: flow_solver [OPTIONS] BOARD1.txt [-H hint1.txt] [...]\n\n"
           "Display options:\n\n"
           "  -q, --quiet             Reduce output\n"
           "  -D, --diagnostics       Display nodes when storage exceeded\n"
@@ -2316,6 +2392,7 @@ void usage(FILE* fp, int exitcode) {
           "  -b, --bfs               Run breadth-first search\n"
           "  -n, --max-nodes N       Restrict storage to N nodes\n"
           "  -m, --max-storage N     Restrict storage to N MB (default %'g)\n"
+          "  -H, --hint HINTFILE     Provide hint for previous board.\n"
           "\n"
           "Help:\n\n"
           "  -h, --help              See this help text\n\n",
@@ -2344,7 +2421,9 @@ int exists(const char* fn) {
 //////////////////////////////////////////////////////////////////////
 // Parse command-line options
 
-size_t parse_options(int argc, char** argv, const char** input_files) {
+size_t parse_options(int argc, char** argv,
+                     const char** input_files,
+                     const char** hint_files) {
   
   size_t num_inputs = 0;
 
@@ -2381,7 +2460,7 @@ size_t parse_options(int argc, char** argv, const char** input_files) {
       g_options.order_autosort_colors = 0;
     } else if (!strcmp(opt, "-o") || !strcmp(opt, "--order")) {
       if (i+1 == argc) {
-        fprintf(stderr, "-o, --order needs argument\n");
+        fprintf(stderr, "%s needs argument\n", opt);
         usage(stderr, 1);
       }
       g_options.order_user = argv[++i];
@@ -2396,7 +2475,7 @@ size_t parse_options(int argc, char** argv, const char** input_files) {
     } else if (!strcmp(opt, "-n") || !strcmp(opt, "--max-nodes")) {
       
       if (i+1 == argc) {
-        fprintf(stderr, "-n, --max-nodes needs argument\n");
+        fprintf(stderr, "%s needs argument\n", opt);
         usage(stderr, 1);
       }
       
@@ -2412,7 +2491,7 @@ size_t parse_options(int argc, char** argv, const char** input_files) {
     } else if (!strcmp(opt, "-m") || !strcmp(opt, "--max-storage")) {
 
       if (i+1 == argc) {
-        fprintf(stderr, "-m, --max-storage needs argument\n");
+        fprintf(stderr, "%s needs argument\n", opt);
         usage(stderr, 1);
       }
       
@@ -2428,6 +2507,19 @@ size_t parse_options(int argc, char** argv, const char** input_files) {
       
     } else if (!strcmp(opt, "-h") || !strcmp(opt, "--help")) {
       usage(stdout, 0);
+    } else if (!strcmp(opt, "-H") || !strcmp(opt, "--hint")) {
+      if (!num_inputs) {
+        fprintf(stderr, "%s before any board specified\n", opt);
+      } else if (i+1 == argc) {
+        fprintf(stderr, "%s needs argument\n", opt);
+        usage(stderr, 1);
+      }
+      opt = argv[++i];
+      if (!exists(opt)) {
+        fprintf(stderr, "error opening %s\n", opt);
+        exit(1);
+      }
+      hint_files[num_inputs-1] = opt;
     } else if (exists(opt)) {
       input_files[num_inputs++] = opt;
     } else if (opt[0] == '-') {
@@ -2476,13 +2568,19 @@ int main(int argc, char** argv) {
   g_options.search_max_endpoint = 1;
 
   const char* input_files[argc];
+  const char* hint_files[argc];
+
+  memset(input_files, 0, sizeof(input_files));
+  memset(input_files, 0, sizeof(hint_files));
   
-  size_t num_inputs = parse_options(argc, argv, input_files);
+  size_t num_inputs = parse_options(argc, argv,
+                                    input_files, hint_files);
   
   queue_setup();
 
   game_info_t  info;
   game_state_t state;
+  pos_t hint[MAX_CELLS];
 
   size_t max_width = 0;
 
@@ -2497,6 +2595,9 @@ int main(int argc, char** argv) {
 
     const char* input_file = input_files[i];
 
+    const char* hint_file = hint_files[i];
+
+
     char input_file_padded[1024];
     snprintf(input_file_padded, 1024, "%-*s",
              (int)max_width, input_file);
@@ -2508,13 +2609,25 @@ int main(int argc, char** argv) {
                "***********************************\n\n");
       }
 
+
+      if (hint_file) {
+        fprintf(stderr, "warning: ignoring hint file %s for now\n", hint_file);
+        if (!game_read_hint(&info, &state, hint_file, hint)) {
+          hint_file = 0;
+        } 
+      }
+      
       if (!g_options.display_quiet) {
-        printf("read %zux%zu board with %zu colors from %s\n\n",
+        printf("read %zux%zu board with %zu colors from %s\n",
                info.size, info.size, info.num_colors, input_file);
+        if (hint_file) {
+          printf("read hint file from %s\n", hint_file);
+        }
+        printf("\n");
       }
       
       game_order_colors(&info, &state);
-      game_search(&info, &state, input_file_padded);
+      game_search(&info, &state, hint_file ? hint : 0, input_file_padded);
       
     }
 
