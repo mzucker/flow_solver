@@ -24,12 +24,6 @@
 //   - TODO: detect bottlenecks/choke points? (places where multiple
 //           flows would HAVE to pass through but can't
 //
-//   - TODO: impute cells near endpoint that must be filled. a free
-//           cell next to an endpoint that has only one valid neighbor
-//           *must* be the next stop along that path.
-//
-//   - TODO: detect fingers? 1-thick dead-end regions of freespace
-//
 //   - TODO: bidirectional search?
 //
 //////////////////////////////////////////////////////////////////////
@@ -1053,9 +1047,7 @@ void game_order_colors(game_info_t* info,
   if (!g_options.display_quiet) {
     
     if (g_options.order_most_constrained) {
-      int color = game_next_move_color(info, state);
-      printf("will choose color by most constrained, starting with %s.\n",
-             color_name_str(info, color));
+      printf("will choose color by most constrained\n");
     } else {
       printf("will choose colors in order: ");
       for (size_t i=0; i<info->num_colors; ++i) {
@@ -1934,8 +1926,6 @@ void game_search(const game_info_t* info,
     assert(n);
 
     game_state_t* parent_state = &n->state;
-
-    
     
     int color = game_next_move_color(info, parent_state);
     int num_dirs = 4;
@@ -2090,7 +2080,7 @@ void usage(FILE* fp, int exitcode) {
           "  -q, --quiet             Reduce output\n"
           "  -D, --diagnose          Display nodes when storage exceeded\n"
           "  -A, --no-animation      Disable animating solution\n"
-          "  -F, --fast              Speed up animation 8x\n"
+          "  -F, --fast              Speed up animation 4x\n"
 #ifndef _WIN32          
           "  -C, --color             Force use of ANSI color\n"
 #endif
@@ -2160,7 +2150,7 @@ size_t parse_options(int argc, char** argv, const char** input_files) {
     } else if (!strcmp(opt, "-A") || !strcmp(opt, "--no-animation")) {
       g_options.display_animate = 0;
     } else if (!strcmp(opt, "-F") || !strcmp(opt, "--fast")) {
-      g_options.display_speedup = 8.0;
+      g_options.display_speedup = 4.0;
 #ifndef _WIN32      
     } else if (!strcmp(opt, "-C") || !strcmp(opt, "--color")) {
       g_options.display_color = 1;
