@@ -266,7 +266,7 @@ const color_lookup color_dict[MAX_COLORS] = {
   { 'A', '=', 100 }, // gray
   { 'W', '~', 107 }, // white
   { 'g', '-', 102 }, // bright green
-  { 'w', '$',  47 }, // beige
+  { 'T', '$',  47 }, // tan
   { 'b', '"',  44 }, // dark blue
   { 'c', '&',  46 }, // dark cyan
   { 'p', '.',  35 }, // pink?
