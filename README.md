@@ -2,6 +2,7 @@ flow_solver
 ===========
 
 Fast, automated solution of Flow Free puzzles in a single C file.
+
 Full writeup coming soon to <https://mzucker.github.io/>
 
 Building
