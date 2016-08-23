@@ -99,7 +99,7 @@ typedef struct options_struct {
   int    cost_check_touch;
   int    cost_check_stranded;
   int    cost_check_deadends;
-  int    cost_check_bottlenecks;
+  int    cost_check_bottleneck_limit;
   int    cost_penalize_exploration;
   
   int    order_autosort_colors;
@@ -1983,7 +1983,7 @@ int game_check_bottleneck(const game_info_t* info,
     int y1 = y0+dy;
 
     if (game_is_free(info, state, x1, y1)) {
-      for (int n=0; n<2; ++n) {
+      for (int n=0; n<g_options.cost_check_bottleneck_limit; ++n) {
         int x2 = x1+dx;
         int y2 = y1+dy;
         if (!game_is_free(info, state, x2, y2)) {
@@ -2129,7 +2129,7 @@ tree_node_t* game_validate_ff(const game_info_t* info,
 
   }
 
-  if (g_options.cost_check_bottlenecks && 
+  if (g_options.cost_check_bottleneck_limit && 
       game_check_bottleneck(info, node_state)) {
 
     goto unalloc_return_0;
@@ -2480,7 +2480,7 @@ size_t parse_options(int argc, char** argv,
     { 't', "touch",         &g_options.cost_check_touch, 0 },
     { 's', "stranded",      &g_options.cost_check_stranded, 0 },
     { 'd', "deadends",      &g_options.cost_check_deadends, 0 },
-    { 'b', "bottlenecks",   &g_options.cost_check_bottlenecks, 0 },
+    { 'b', "bottlenecks",   0, 0 },
     { 'e', "no-explore",    &g_options.cost_penalize_exploration, 1 },
     { 'a', "no-autosort",   &g_options.order_autosort_colors, 0 },
     { 'o', "order",         0, 0 },
@@ -2530,7 +2530,19 @@ size_t parse_options(int argc, char** argv,
       if (options[match_id].dst_flag) {
         
         *options[match_id].dst_flag = options[match_id].dst_value;
+
+      } else if (match_short_char == 'b') {
                 
+        opt = get_argument(argc, argv, &i);
+      
+        char* endptr;
+        g_options.cost_check_bottleneck_limit = strtol(opt, &endptr, 10);
+      
+        if (!endptr || *endptr) {
+          fprintf(stderr, "error parsing bottleneck limit %s on command line!\n\n", opt);
+          exit(1);
+        }
+
       } else if (match_short_char == 'n') {
 
         opt = get_argument(argc, argv, &i);
@@ -2540,7 +2552,7 @@ size_t parse_options(int argc, char** argv,
       
         if (!endptr || *endptr) {
           fprintf(stderr, "error parsing max nodes %s on command line!\n\n", opt);
-          usage(stderr, 1);
+          exit(1);
         }
 
       } else if (match_short_char == 'm') {
@@ -2552,7 +2564,7 @@ size_t parse_options(int argc, char** argv,
         
         if (!endptr || *endptr || g_options.search_max_mb <= 0) {
           fprintf(stderr, "error parsing max storage %s on command line!\n\n", opt);
-          usage(stderr, 1);
+          exit(1);
         }
         
       } else if (match_short_char == 'H') {
@@ -2621,7 +2633,7 @@ int main(int argc, char** argv) {
   g_options.cost_check_touch = 1;
   g_options.cost_check_stranded = 1;
   g_options.cost_check_deadends = 1;
-  g_options.cost_check_bottlenecks = 1;
+  g_options.cost_check_bottleneck_limit = 3;
   g_options.cost_penalize_exploration = 0;
 
   g_options.order_autosort_colors = 1;
