@@ -1537,7 +1537,9 @@ int game_find_forced(const game_info_t* info,
   // if there is a freespace next to an endpoint and the freespace has
   // only one free neighbor, we must extend the endpoint into it.
 
-  for (size_t color=0; color<info->num_colors; ++color) {
+  for (size_t i=0; i<info->num_colors; ++i) {
+
+    size_t color = info->color_order[i];
 
     if (state->completed & (1 << color)) { continue; }
 
