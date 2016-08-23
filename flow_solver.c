@@ -96,11 +96,11 @@ typedef struct options_struct {
   int    display_color;
   int    display_fast;
   
-  int    cost_check_touch;
-  int    cost_check_stranded;
-  int    cost_check_deadends;
-  int    cost_bottleneck_limit;
-  int    cost_penalize_exploration;
+  int    node_check_touch;
+  int    node_check_stranded;
+  int    node_check_deadends;
+  int    node_bottleneck_limit;
+  int    node_penalize_exploration;
   
   int    order_autosort_colors;
   int    order_most_constrained;
@@ -600,7 +600,7 @@ int game_can_move(const game_info_t* info,
     return 0;
   }
 
-  if (g_options.cost_check_touch) {
+  if (g_options.node_check_touch) {
     
     // All puzzles are designed so that a new path segment is adjacent
     // to at most one path segment of the same color -- the predecessor
@@ -754,7 +754,7 @@ double game_make_move(const game_info_t* info,
 
     if (num_free == 1) {
       action_cost = 0;
-    } else if (g_options.cost_penalize_exploration && num_free == 2) {
+    } else if (g_options.node_penalize_exploration && num_free == 2) {
       action_cost = 2;
     }
 
@@ -1983,7 +1983,7 @@ int game_check_bottleneck(const game_info_t* info,
     int y1 = y0+dy;
 
     if (game_is_free(info, state, x1, y1)) {
-      for (int n=0; n<g_options.cost_bottleneck_limit; ++n) {
+      for (int n=0; n<g_options.node_bottleneck_limit; ++n) {
         int x2 = x1+dx;
         int y2 = y1+dy;
         if (!game_is_free(info, state, x2, y2)) {
@@ -2112,15 +2112,15 @@ tree_node_t* game_validate_ff(const game_info_t* info,
   
   const game_state_t* node_state = &node->state;
   
-  if (g_options.cost_check_stranded ||
-      g_options.cost_check_deadends) {
+  if (g_options.node_check_stranded ||
+      g_options.node_check_deadends) {
     
     uint8_t rmap[MAX_CELLS];
     size_t rcount = game_build_regions(info, node_state, rmap);
     
-    if ( (g_options.cost_check_stranded &&
+    if ( (g_options.node_check_stranded &&
           game_regions_stranded(info, node_state, rcount, rmap, MAX_COLORS, 1)) ||
-         (g_options.cost_check_deadends &&
+         (g_options.node_check_deadends &&
           game_regions_deadends(info, node_state, rcount, rmap)) ) {
 
       goto unalloc_return_0;
@@ -2129,7 +2129,7 @@ tree_node_t* game_validate_ff(const game_info_t* info,
 
   }
 
-  if (g_options.cost_bottleneck_limit && 
+  if (g_options.node_bottleneck_limit && 
       game_check_bottleneck(info, node_state)) {
 
     goto unalloc_return_0;
@@ -2383,7 +2383,7 @@ void usage(FILE* fp, int exitcode) {
           "  -C, --color             Force use of ANSI color\n"
 #endif
           "\n"
-          "Cost/feasibility options:\n\n"
+          "Node evaluation options:\n\n"
           "  -t, --touch             Disable path self-touch test\n"
           "  -s, --stranded          Disable stranded checking\n"
           "  -d, --deadends          Disable dead-end checking\n"
@@ -2408,7 +2408,7 @@ void usage(FILE* fp, int exitcode) {
           "\n"
           "Help:\n\n"
           "  -h, --help              See this help text\n\n",
-          g_options.cost_bottleneck_limit,
+          g_options.node_bottleneck_limit,
           g_options.search_max_mb);
 
   exit(exitcode);
@@ -2478,11 +2478,11 @@ size_t parse_options(int argc, char** argv,
 #ifndef _WIN32    
     { 'C', "color",         &g_options.display_color, 1 },
 #endif
-    { 't', "touch",         &g_options.cost_check_touch, 0 },
-    { 's', "stranded",      &g_options.cost_check_stranded, 0 },
-    { 'd', "deadends",      &g_options.cost_check_deadends, 0 },
+    { 't', "touch",         &g_options.node_check_touch, 0 },
+    { 's', "stranded",      &g_options.node_check_stranded, 0 },
+    { 'd', "deadends",      &g_options.node_check_deadends, 0 },
     { 'b', "bottlenecks",   0, 0 },
-    { 'e', "no-explore",    &g_options.cost_penalize_exploration, 1 },
+    { 'e', "no-explore",    &g_options.node_penalize_exploration, 1 },
     { 'a', "no-autosort",   &g_options.order_autosort_colors, 0 },
     { 'o', "order",         0, 0 },
     { 'r', "randomize",     &g_options.order_random, 1 },
@@ -2537,7 +2537,7 @@ size_t parse_options(int argc, char** argv,
         opt = get_argument(argc, argv, &i);
       
         char* endptr;
-        g_options.cost_bottleneck_limit = strtol(opt, &endptr, 10);
+        g_options.node_bottleneck_limit = strtol(opt, &endptr, 10);
       
         if (!endptr || *endptr) {
           fprintf(stderr, "error parsing bottleneck limit %s on command line!\n\n", opt);
@@ -2631,11 +2631,11 @@ int main(int argc, char** argv) {
   g_options.display_color = terminal_has_color();
   g_options.display_fast = 0;
   
-  g_options.cost_check_touch = 1;
-  g_options.cost_check_stranded = 1;
-  g_options.cost_check_deadends = 1;
-  g_options.cost_bottleneck_limit = 3;
-  g_options.cost_penalize_exploration = 0;
+  g_options.node_check_touch = 1;
+  g_options.node_check_stranded = 1;
+  g_options.node_check_deadends = 1;
+  g_options.node_bottleneck_limit = 3;
+  g_options.node_penalize_exploration = 0;
 
   g_options.order_autosort_colors = 1;
   g_options.order_most_constrained = 1;
