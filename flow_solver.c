@@ -99,7 +99,7 @@ typedef struct options_struct {
   int    cost_check_touch;
   int    cost_check_stranded;
   int    cost_check_deadends;
-  int    cost_check_bottleneck_limit;
+  int    cost_bottleneck_limit;
   int    cost_penalize_exploration;
   
   int    order_autosort_colors;
@@ -1983,7 +1983,7 @@ int game_check_bottleneck(const game_info_t* info,
     int y1 = y0+dy;
 
     if (game_is_free(info, state, x1, y1)) {
-      for (int n=0; n<g_options.cost_check_bottleneck_limit; ++n) {
+      for (int n=0; n<g_options.cost_bottleneck_limit; ++n) {
         int x2 = x1+dx;
         int y2 = y1+dy;
         if (!game_is_free(info, state, x2, y2)) {
@@ -2129,7 +2129,7 @@ tree_node_t* game_validate_ff(const game_info_t* info,
 
   }
 
-  if (g_options.cost_check_bottleneck_limit && 
+  if (g_options.cost_bottleneck_limit && 
       game_check_bottleneck(info, node_state)) {
 
     goto unalloc_return_0;
@@ -2387,7 +2387,7 @@ void usage(FILE* fp, int exitcode) {
           "  -t, --touch             Disable path self-touch test\n"
           "  -s, --stranded          Disable stranded checking\n"
           "  -d, --deadends          Disable dead-end checking\n"
-          "  -b, --bottlenecks       Disable bottleneck checking\n"
+          "  -b, --bottlenecks N     Set bottleneck limit check (default %d)\n"
           "  -e, --no-explore        Penalize exploring away from walls\n"
           "\n"
           "Color ordering options:\n\n"
@@ -2408,6 +2408,7 @@ void usage(FILE* fp, int exitcode) {
           "\n"
           "Help:\n\n"
           "  -h, --help              See this help text\n\n",
+          g_options.cost_bottleneck_limit,
           g_options.search_max_mb);
 
   exit(exitcode);
@@ -2536,7 +2537,7 @@ size_t parse_options(int argc, char** argv,
         opt = get_argument(argc, argv, &i);
       
         char* endptr;
-        g_options.cost_check_bottleneck_limit = strtol(opt, &endptr, 10);
+        g_options.cost_bottleneck_limit = strtol(opt, &endptr, 10);
       
         if (!endptr || *endptr) {
           fprintf(stderr, "error parsing bottleneck limit %s on command line!\n\n", opt);
@@ -2633,7 +2634,7 @@ int main(int argc, char** argv) {
   g_options.cost_check_touch = 1;
   g_options.cost_check_stranded = 1;
   g_options.cost_check_deadends = 1;
-  g_options.cost_check_bottleneck_limit = 3;
+  g_options.cost_bottleneck_limit = 3;
   g_options.cost_penalize_exploration = 0;
 
   g_options.order_autosort_colors = 1;
