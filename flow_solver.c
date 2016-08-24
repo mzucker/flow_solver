@@ -1928,7 +1928,10 @@ int game_is_free(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
-// This is a helper function used by game_check_bottleneck below.
+// This is a helper function used by game_check_bottleneck below.  If
+// the given color moves n steps, it will split a region of
+// freespace. Check to see how many colors would be unsolvable if this
+// occurred. If the number is greater than n, we have a problem!
 
 int game_check_chokepoint(const game_info_t* info,
                           const game_state_t* state,
@@ -1958,7 +1961,8 @@ int game_check_chokepoint(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
-// If a recent move has just 
+// Identify bottlenecks -- narrow regions -- created by a recent move
+// of a color, then see if it renders the puzzle unsolvable.
 
 int game_check_bottleneck(const game_info_t* info,
                           const game_state_t* state) {
@@ -1995,18 +1999,6 @@ int game_check_bottleneck(const game_info_t* info,
         y1 = y2;
       }
     }
-
-    /*
-    if (game_is_free(info, state, x1, y1) &&
-        !game_is_free(info, state, x2, y2)) {
-
-
-      int r = game_check_chokepoint(info, state, color, dir, endpoint, x1, y1);
-
-      if (r) { return r; }
-      
-    }
-    */
     
   }
 
