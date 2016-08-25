@@ -26,6 +26,8 @@
 //   - TODO: try bidirectional search? (code is sort of in place but
 //           seems to worsen things a lot.
 //
+//   - TODO: check region stuff *after* all forced moves been made!
+
 //////////////////////////////////////////////////////////////////////
 
 // Positions are 8-bit integers with 4 bits each for y, x.
@@ -1545,12 +1547,18 @@ int game_find_forced(const game_info_t* info,
 
     for (int endpoint=0; endpoint<g_options.search_max_endpoint; ++endpoint) {
 
+      int free_dir = -1;
+      int num_free = 0;
+
       for (int dir=0; dir<4; ++dir) {
 
         pos_t neighbor_pos = pos_offset_pos(info, state->pos[color][endpoint], dir);
         if (neighbor_pos == INVALID_POS) { continue; }
 
         if (state->cells[neighbor_pos] == 0) {
+
+          free_dir = dir;
+          ++num_free;
 
           if (game_is_forced(info, state, color, endpoint, neighbor_pos)) {
 
@@ -1565,6 +1573,13 @@ int game_find_forced(const game_info_t* info,
         }
 
       } // for each neighbor
+
+      if (num_free == 1) {
+        assert(free_dir >= 0 && free_dir < 4);
+        *forced_color = color;
+        *forced_dir = free_dir;
+        *forced_endpoint = endpoint;
+      }
       
     }
   }
@@ -2098,35 +2113,10 @@ tree_node_t* game_validate_ff(const game_info_t* info,
 
   assert(node == storage->start+storage->count-1);
 
-
   //printf("validating node %p\n", node);
   //game_print(info, &node->state);
   
   const game_state_t* node_state = &node->state;
-  
-  if (g_options.node_check_stranded ||
-      g_options.node_check_deadends) {
-    
-    uint8_t rmap[MAX_CELLS];
-    size_t rcount = game_build_regions(info, node_state, rmap);
-    
-    if ( (g_options.node_check_stranded &&
-          game_regions_stranded(info, node_state, rcount, rmap, MAX_COLORS, 1)) ||
-         (g_options.node_check_deadends &&
-          game_regions_deadends(info, node_state, rcount, rmap)) ) {
-
-      goto unalloc_return_0;
-            
-    }
-
-  }
-
-  if (g_options.node_bottleneck_limit && 
-      game_check_bottleneck(info, node_state)) {
-
-    goto unalloc_return_0;
-    
-  }
 
   if (g_options.order_forced_first) {
 
@@ -2164,6 +2154,31 @@ tree_node_t* game_validate_ff(const game_info_t* info,
 
   }
 
+  
+  if (g_options.node_check_stranded ||
+      g_options.node_check_deadends) {
+    
+    uint8_t rmap[MAX_CELLS];
+    size_t rcount = game_build_regions(info, node_state, rmap);
+    
+    if ( (g_options.node_check_stranded &&
+          game_regions_stranded(info, node_state, rcount, rmap, MAX_COLORS, 1)) ||
+         (g_options.node_check_deadends &&
+          game_regions_deadends(info, node_state, rcount, rmap)) ) {
+
+      goto unalloc_return_0;
+            
+    }
+
+  }
+
+  if (g_options.node_bottleneck_limit && 
+      game_check_bottleneck(info, node_state)) {
+
+    goto unalloc_return_0;
+    
+  }
+  
   //printf("node %p seems fine!\n", node);
   return node;
 
@@ -2316,7 +2331,9 @@ int game_search(const game_info_t* info,
         printf("\n");
         game_print(info, &solution_node->state);
       } else {
-        delay_seconds(1.0);
+        if (elapsed < 1.0) {
+          delay_seconds(1.0 - elapsed);
+        }
         game_animate_solution(info, solution_node);
         delay_seconds(1.0);
       }
