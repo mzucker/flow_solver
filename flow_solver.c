@@ -16,20 +16,6 @@
 #include <windows.h>
 #endif
 
-// ideas:
-//
-//   - TODO: figure out why things only work for bigger puzzles if
-//           moves which are forced have zero cost.
-//
-//   - TODO: detect larger bottlenecks/choke points?
-//
-//   - TODO: try bidirectional search? (code is sort of in place but
-//           seems to worsen things a lot.
-//
-//   - TODO: check region stuff *after* all forced moves been made!
-
-//////////////////////////////////////////////////////////////////////
-
 // Positions are 8-bit integers with 4 bits each for y, x.
 enum {
 
@@ -172,6 +158,7 @@ typedef struct game_state_struct {
   
 } game_state_t;
 
+// Used for auto-sorting colors
 typedef struct color_features_struct {
   int index;
   int user_index;
@@ -260,8 +247,8 @@ const int DIR_DELTA[4][3] = {
   {  0, 1, 16 }
 };
 
-// Look-up table mapping characters in puzzle definitions to ANSI
-// colors.
+// Look-up table mapping characters in puzzle definitions to 
+// output char, ANSI color, foreground/background RGB
 const color_lookup_t color_dict[MAX_COLORS] = {
   { 'R', 'o', "101", "ff0000", "723939" }, // red
   { 'B', '+', "104", "0000ff", "393972" }, // blue
@@ -625,10 +612,10 @@ void game_print_svg(FILE* fp,
   fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" "
           "width=\"%zu\" height=\"%zu\">\n",
           display_size, display_size);
+
   fprintf(fp, "  <rect width=\"%zu\" height=\"%zu\" "
           "style=\"fill: #7b7c41;\" />\n",
           display_size, display_size);
-
 
   for (size_t y=0; y<info->size; ++y) {
     
@@ -727,6 +714,9 @@ void game_print_svg(FILE* fp,
 
 }
 
+//////////////////////////////////////////////////////////////////////
+// Thin wrapper on above.
+
 void game_save_svg(const char* filename,
                    const game_info_t* info,
                    const game_state_t* state) {
@@ -768,8 +758,6 @@ void game_print(const game_info_t* info,
   
 }
 
-
-
 //////////////////////////////////////////////////////////////////////
 // Return the number of free spaces around an x, y position
 
@@ -804,7 +792,6 @@ int game_num_free_pos(const game_info_t* info,
   return game_num_free_coords(info, state, x, y);
 
 }
-
 
 //////////////////////////////////////////////////////////////////////
 // Update the game state to make the given move.
@@ -904,7 +891,6 @@ int game_read(const char* filename,
 
   char buf[MAX_SIZE+2];
 
-
   memset(info->color_tbl, 0xff, sizeof(info->color_tbl));
   memset(info->init_pos, 0xff, sizeof(info->init_pos));
   memset(info->goal_pos, 0xff, sizeof(info->goal_pos));
@@ -997,6 +983,7 @@ int game_read(const char* filename,
           state->cells[pos] = cell_create(TYPE_GOAL, color, 0);
 
         }
+        
       } else {
 
         ++state->num_free;
@@ -1468,7 +1455,6 @@ int game_regions_deadends(const game_info_t* info,
 
 }
                         
-
 //////////////////////////////////////////////////////////////////////
 // Check the results of the connected-component analysis to make sure
 // that every color can get solved and no freespace is isolated
@@ -1630,7 +1616,6 @@ int game_is_forced(const game_info_t* info,
 
 }
                                          
-
 //////////////////////////////////////////////////////////////////////
 // Find a forced move. This could be optimized to not search all
 // colors all the time, maybe?
@@ -2490,8 +2475,10 @@ int game_search(const game_info_t* info,
 void usage(FILE* fp, int exitcode) {
 
   fprintf(fp,
-          "usage: flow_solver [ OPTIONS ] [ -H HINT1.txt ] [ -o ORDER1 ] BOARD1.txt\n"
-          "                   [ [ -H HINT2.txt ] [ -o ORDER2 ] BOARD2.txt [ ... ] ]\n\n"
+          "usage: flow_solver [ OPTIONS ] [ -H HINT1.txt ] "
+          "[ -o ORDER1 ] BOARD1.txt\n"
+          "                   [ [ -H HINT2.txt ] [ -o ORDER2 ] "
+          "BOARD2.txt [ ... ] ]\n\n"
           "Display options:\n\n"
           "  -q, --quiet             Reduce output\n"
           "  -D, --diagnostics       Print diagnostics when search unsuccessful\n"
@@ -2836,6 +2823,11 @@ int main(int argc, char** argv) {
       size_t nodes;
       game_state_t final_state;
 
+      if (g_options.display_quiet) { 
+        printf("%*s ", max_width, input_file);
+        fflush(stdout);
+      }
+
       int result = game_search(&info, &state, hint_file ? hint : 0,
                                &elapsed, &nodes, &final_state);
 
@@ -2847,8 +2839,7 @@ int main(int argc, char** argv) {
 
       if (g_options.display_quiet) {
         
-        printf("%*s %c %'12.3f %'12zu\n",
-               max_width, input_file,
+        printf("%c %'12.3f %'12zu\n",
                SEARCH_RESULT_CHARS[result],
                elapsed, nodes);
 
@@ -2872,6 +2863,9 @@ int main(int argc, char** argv) {
           ;
         
         game_save_svg(output_file, &info, &final_state);
+        if (!g_options.display_quiet) {
+          printf("wrote %s\n", output_file);
+        }
         
       }
       
@@ -2906,7 +2900,8 @@ int main(int argc, char** argv) {
 
       if (types > 1) {
         printf("\n");
-        printf("overall, %'d searches took a total of %'.3f seconds and %'zu nodes\n",
+        printf("overall, %'d searches took a total of %'.3f seconds "
+               "and %'zu nodes\n",
                boards, overall_elapsed, overall_nodes);
       }
       
