@@ -711,7 +711,6 @@ void game_print_svg(FILE* fp,
       pos = npos;
 
       if (pos == info->init_pos[color]) {
-        //printf("  got to init pos!\n");
         break;
       }
 
@@ -1115,22 +1114,17 @@ int game_next_move_color(const game_info_t* info,
     size_t best_color = -1;
     int best_free = 4;
 
-    //printf("info->num_colors = %zu\n", info->num_colors);
-    
     for (size_t i=0; i<info->num_colors; ++i) {
 
       int color = info->color_order[i];
       
       if (state->completed & (1 << color)) {
-        //printf("color %s is completed!\n", color_name_str(info, color));
         continue;
       }
       
       int num_free = game_num_free_pos(info, state,
                                        state->pos[color]);
 
-      //printf("color %s has %d free\n", color_name_str(info, color), num_free);
-      
       if (num_free < best_free) {
         best_free = num_free;
         best_color = color;
@@ -2286,12 +2280,10 @@ tree_node_t* game_validate_ff(const game_info_t* info,
     
   }
   
-  //printf("node %p seems fine!\n", node);
   return node;
 
  unalloc_return_0:
 
-  //printf("node %p failed to validate\n", node);
   assert(node == storage->start+storage->count-1);
   node_storage_unalloc(storage, node);
   return 0;
@@ -2342,7 +2334,6 @@ int game_search(const game_info_t* info,
   root = game_validate_ff(info, root, &storage);
 
   if (!root) {
-    //printf("can't enqueue root!\n");
     result = SEARCH_UNREACHABLE;
   } else {
     queue_enqueue(&q, root);
@@ -2360,14 +2351,8 @@ int game_search(const game_info_t* info,
 
     game_state_t* parent_state = &n->state;
 
-    //printf("dequeued state:\n");
-    //game_print(info, parent_state);
-    
     int color = game_next_move_color(info, parent_state);
     int hint_dir = -1;
-
-    //printf("next color to move is %d ~ %s\n", color, color_name_str(info, color));
-    //printf("color completed = %d\n", (parent_state->completed & (1 << color)) ? 1 : 0);
 
     if (hint) {
       pos_t pos = parent_state->pos[color];
@@ -2404,18 +2389,6 @@ int game_search(const game_info_t* info,
                                             color, dir);
         
         node_update_costs(info, child, action_cost);
-
-        /*
-        printf("after move, state is:\n");
-        game_print(info, &child->state);
-
-        if (child->state.completed & (1 << color)) {
-          printf("**********************************************************************\n");
-        }
-        
-        //printf("color completed? %d\n",
-        //(child->state.completed & (1 << color)) ? 1 : 0);
-        */
 
         child = game_validate_ff(info, child, &storage);
         
