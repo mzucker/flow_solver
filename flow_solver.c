@@ -102,7 +102,7 @@ typedef struct options_struct {
   int    search_outside_in;
   size_t search_max_nodes;
   double search_max_mb;
-  int    search_max_endpoint;
+  int    search_fast_forward;
   
 } options_t;
 
@@ -2238,7 +2238,8 @@ tree_node_t* game_validate_ff(const game_info_t* info,
   
   const game_state_t* node_state = &node->state;
 
-  if (g_options.order_forced_first) {
+  if (g_options.search_fast_forward &&
+      g_options.order_forced_first) {
 
     int color, dir;
     
@@ -2391,6 +2392,12 @@ int game_search(const game_info_t* info,
 
       if (hint_dir >= 0 && dir != hint_dir) { continue; }
 
+      int forced = 0;
+
+      if (g_options.order_forced_first && !g_options.search_fast_forward) {
+        forced = game_find_forced(info, &n->state, &color, &dir);
+      }
+     
       if (game_can_move(info, &n->state,
                         color, dir)) {
 
@@ -2404,7 +2411,7 @@ int game_search(const game_info_t* info,
         }
 
         size_t action_cost = game_make_move(info, &child->state,
-                                            color, dir, 0);
+                                            color, dir, forced);
         
         node_update_costs(info, child, action_cost);
 
@@ -2427,7 +2434,9 @@ int game_search(const game_info_t* info,
           queue_enqueue(&q, child);
         }
 
-      } // if can move 
+      } // if can move
+
+      if (forced) { break; }
 
     } // for each dir
 
@@ -2539,6 +2548,7 @@ void usage(FILE* fp, int exitcode) {
           "  -B, --breadth-first     Breadth-first search instead of best-first\n"
           "  -n, --max-nodes N       Restrict storage to N nodes\n"
           "  -m, --max-storage N     Restrict storage to N MB (default %'g)\n"
+          "  -Q, --queue-always      Disable \"fast-forward\" bypassing queue for forced moves\n"
           "\n"
           "Options affecting the next input file:\n\n"
           "  -o, --order ORDER       Set color order on command line\n"
@@ -2629,6 +2639,7 @@ size_t parse_options(int argc, char** argv,
     { 'c', "constrained",   &g_options.order_most_constrained, 0 },
     { 'O', "no-outside-in", &g_options.search_outside_in, 0 },
     { 'B', "breadth-first", &g_options.search_best_first, 0 },
+    { 'Q', "queue-always",  &g_options.search_fast_forward, 0 },
     { 'n', "max-nodes",     0, 0 },
     { 'm', "max-storage",   0, 0 },
     { 'H', "hint",          0, 0 },
@@ -2788,7 +2799,7 @@ int main(int argc, char** argv) {
   g_options.search_best_first = 1;
   g_options.search_max_nodes = 0;
   g_options.search_max_mb = 128;
-  g_options.search_max_endpoint = 1;
+  g_options.search_fast_forward = 1;
 
   const char* input_files[argc];
   const char* user_orders[argc];
@@ -2962,8 +2973,7 @@ int main(int argc, char** argv) {
       
     }
     
-  }
-  
+  }  
     
   return 0;
   
