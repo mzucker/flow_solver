@@ -98,7 +98,7 @@ typedef struct options_struct {
   int    order_forced_first;
   int    order_random;
   
-  int    search_astar_like;
+  int    search_best_first;
   int    search_outside_in;
   size_t search_max_nodes;
   double search_max_mb;
@@ -1954,7 +1954,7 @@ void fifo_destroy(queue_t* q) {
 
 void queue_setup() {
 
-  if (g_options.search_astar_like) {
+  if (g_options.search_best_first) {
 
     queue_create = heapq_create;
     queue_enqueue = heapq_enqueue;
@@ -2528,7 +2528,7 @@ void usage(FILE* fp, int exitcode) {
           "\n"
           "Search options:\n\n"
           "  -O, --no-outside-in     Disable outside-in searching\n"
-          "  -B, --bfs               Run breadth-first search\n"
+          "  -B, --breadth-first     Breadth-first search instead of best-first\n"
           "  -n, --max-nodes N       Restrict storage to N nodes\n"
           "  -m, --max-storage N     Restrict storage to N MB (default %'g)\n"
           "\n"
@@ -2620,7 +2620,7 @@ size_t parse_options(int argc, char** argv,
     { 'f', "forced",        &g_options.order_forced_first, 0 },
     { 'c', "constrained",   &g_options.order_most_constrained, 0 },
     { 'O', "no-outside-in", &g_options.search_outside_in, 0 },
-    { 'B', "bfs",           &g_options.search_astar_like, 0 },
+    { 'B', "breadth-first", &g_options.search_best_first, 0 },
     { 'n', "max-nodes",     0, 0 },
     { 'm', "max-storage",   0, 0 },
     { 'H', "hint",          0, 0 },
@@ -2777,9 +2777,9 @@ int main(int argc, char** argv) {
   g_options.order_forced_first = 1;
 
   g_options.search_outside_in = 1;
-  g_options.search_astar_like = 1;
+  g_options.search_best_first = 1;
   g_options.search_max_nodes = 0;
-  g_options.search_max_mb = 1600; // damn you, jumbo_14x14_19.txt!
+  g_options.search_max_mb = 128;
   g_options.search_max_endpoint = 1;
 
   const char* input_files[argc];
