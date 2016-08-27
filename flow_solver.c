@@ -1429,51 +1429,84 @@ void game_regions_add_color(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
+// Helper function for below
+
+int game_is_deadend(const game_info_t* info,
+                    const game_state_t* state,
+                    pos_t pos) {
+
+  assert(pos != INVALID_POS && !state->cells[pos]);
+
+  int x, y;
+  pos_get_coords(pos, &x, &y);
+  
+  int num_free = 0;
+
+  for (int dir=0; dir<4; ++dir) {
+    pos_t neighbor_pos = offset_pos(info, x, y, dir);
+    if (neighbor_pos != INVALID_POS) {
+      if (!state->cells[neighbor_pos]) {
+        ++num_free;
+      } else {
+        for (size_t color=0; color<info->num_colors; ++color) {
+          if (state->completed & (1 << color)) {
+            continue;
+          }
+          if (neighbor_pos == state->pos[color] ||
+              neighbor_pos == info->goal_pos[color]) {
+            ++num_free;
+          }
+        }
+                                                                 
+      }
+    }
+  }
+
+  return num_free <= 1;
+
+}
+
+//////////////////////////////////////////////////////////////////////
 // Check for dead-end regions of freespace where there is no way to
 // put an active path into and out of it. Any freespace node which
 // has only one free neighbor represents such a dead end. For the
 // purposes of this check, cur and goal positions count as "free".
 
-int game_regions_deadends(const game_info_t* info,
-                          const game_state_t* state,
-                          size_t rcount,
-                          const uint8_t rmap[MAX_CELLS]) {
+int game_check_deadends(const game_info_t* info,
+                        const game_state_t* state) {
 
-  for (size_t y=0; y<info->size; ++y) {
-    for (size_t x=0; x<info->size; ++x) {
+  size_t color = state->last_color;
+  if (color >= info->num_colors) { return 0; }
+  
+  pos_t cur_pos = state->pos[color];
+  
+  cell_t cur_cell = state->cells[cur_pos];
+  assert(cell_get_type(cur_cell) == TYPE_PATH);
 
-      pos_t pos = pos_from_coords(x, y);
-      if (rmap[pos] >= rcount) { continue; }
+  int dir = cell_get_direction(cur_cell);
 
-      int num_free = 0;
+  // note: OPPOSITE dir
+  pos_t prev_pos = pos_offset_pos(info, cur_pos, dir ^ 1);
 
-      for (int dir=0; dir<4; ++dir) {
-        pos_t neighbor_pos = offset_pos(info, x, y, dir);
-        if (neighbor_pos != INVALID_POS) {
-          if (rmap[neighbor_pos] == rmap[pos]) {
-            ++num_free;
-          } else {
-            for (size_t color=0; color<info->num_colors; ++color) {
-              if (state->completed & (1 << color)) {
-                continue;
-              }
-              if (neighbor_pos == state->pos[color] ||
-                  neighbor_pos == info->goal_pos[color]) {
-                ++num_free;
-              }
-            }
-                                                                 
-          }
-        }
-      }
+  assert(state->cells[prev_pos] &&
+         cell_get_color(state->cells[prev_pos]) == color);
 
-      if (num_free <= 1) {
+  pos_t positions[2] = { cur_pos, prev_pos };
 
+  for (int i=0; i<2; ++i) {
+
+    int x, y;
+    pos_get_coords(positions[i], &x, &y);
+
+    for (int dir=0; dir<4; ++dir) {
+      pos_t neighbor_pos = offset_pos(info, x, y, dir);
+      if (neighbor_pos != INVALID_POS &&
+          !state->cells[neighbor_pos] &&
+          game_is_deadend(info, state, neighbor_pos)) {
         return 1;
-        
       }
-      
     }
+
   }
 
   return 0;
@@ -2170,15 +2203,15 @@ void game_diagnostics(const game_info_t* info,
 
     size_t rcount = game_build_regions(info, &state_copy, rmap);
 
-    if (game_regions_stranded(info, &state_copy, rcount, rmap, MAX_COLORS, 1)) {
-      printf("stranded -- state should be pruned!\n");
+    if (game_check_deadends(info, &state_copy)) {
+      printf("dead-ended -- state should be pruned!\n");
       printf("game regions:\n\n");
       game_print_regions(info, &state_copy, rmap);
       break;
     }
-
-    if (game_regions_deadends(info, &state_copy, rcount, rmap)) {
-      printf("dead-ended -- state should be pruned!\n");
+    
+    if (game_regions_stranded(info, &state_copy, rcount, rmap, MAX_COLORS, 1)) {
+      printf("stranded -- state should be pruned!\n");
       printf("game regions:\n\n");
       game_print_regions(info, &state_copy, rmap);
       break;
@@ -2265,20 +2298,19 @@ tree_node_t* game_validate_ff(const game_info_t* info,
 
   }
 
-  
-  if (g_options.node_check_stranded ||
-      g_options.node_check_deadends) {
+  if (g_options.node_check_deadends &&
+      game_check_deadends(info, node_state)) {
+    goto unalloc_return_0;
+  }
+
+  if (g_options.node_check_stranded) {
     
     uint8_t rmap[MAX_CELLS];
     size_t rcount = game_build_regions(info, node_state, rmap);
     
-    if ( (g_options.node_check_stranded &&
-          game_regions_stranded(info, node_state, rcount, rmap, MAX_COLORS, 1)) ||
-         (g_options.node_check_deadends &&
-          game_regions_deadends(info, node_state, rcount, rmap)) ) {
-
+    if (game_regions_stranded(info, node_state, rcount, rmap,
+                              MAX_COLORS, 1)) {
       goto unalloc_return_0;
-            
     }
 
   }
