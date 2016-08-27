@@ -1479,34 +1479,17 @@ int game_check_deadends(const game_info_t* info,
   if (color >= info->num_colors) { return 0; }
   
   pos_t cur_pos = state->pos[color];
-  
-  cell_t cur_cell = state->cells[cur_pos];
-  assert(cell_get_type(cur_cell) == TYPE_PATH);
 
-  int dir = cell_get_direction(cur_cell);
+  int x, y;
+  pos_get_coords(cur_pos, &x, &y);
 
-  // note: OPPOSITE dir
-  pos_t prev_pos = pos_offset_pos(info, cur_pos, dir ^ 1);
-
-  assert(state->cells[prev_pos] &&
-         cell_get_color(state->cells[prev_pos]) == color);
-
-  pos_t positions[2] = { cur_pos, prev_pos };
-
-  for (int i=0; i<2; ++i) {
-
-    int x, y;
-    pos_get_coords(positions[i], &x, &y);
-
-    for (int dir=0; dir<4; ++dir) {
-      pos_t neighbor_pos = offset_pos(info, x, y, dir);
-      if (neighbor_pos != INVALID_POS &&
-          !state->cells[neighbor_pos] &&
-          game_is_deadend(info, state, neighbor_pos)) {
-        return 1;
-      }
+  for (int dir=0; dir<4; ++dir) {
+    pos_t neighbor_pos = offset_pos(info, x, y, dir);
+    if (neighbor_pos != INVALID_POS &&
+        !state->cells[neighbor_pos] &&
+        game_is_deadend(info, state, neighbor_pos)) {
+      return 1;
     }
-
   }
 
   return 0;
