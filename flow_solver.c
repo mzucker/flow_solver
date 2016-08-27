@@ -635,7 +635,7 @@ void game_print_svg(FILE* fp,
       if (cell) {
 
         if (type == TYPE_PATH ||
-            (type == TYPE_INIT && state->pos[color] != info->init_pos[color]) ||
+            (type == TYPE_INIT) ||
             (type == TYPE_GOAL && (state->completed & (1 << color)))) {
           cell_bg = color_dict[info->color_ids[color]].bg_rgb;
         } 
@@ -798,7 +798,7 @@ int game_num_free_pos(const game_info_t* info,
 
 double game_make_move(const game_info_t* info,
                       game_state_t* state, 
-                      int color, int dir) {
+                      int color, int dir, int forced) {
 
 
   // Make sure valid color
@@ -830,7 +830,10 @@ double game_make_move(const game_info_t* info,
   state->cells[new_pos] = move;
   state->pos[color] = new_pos;
   --state->num_free;
-  state->last_color = color;
+
+  if (!forced) {
+    state->last_color = color;
+  }
 
   double action_cost = 1;
 
@@ -854,12 +857,14 @@ double game_make_move(const game_info_t* info,
     int num_free = game_num_free_coords(info, state,
                                         new_x, new_y);
 
-    if (num_free == 1) {
-      action_cost = 0;
-    } else if (g_options.node_penalize_exploration && num_free == 2) {
+    if (g_options.node_penalize_exploration && num_free == 2) {
       action_cost = 2;
     }
 
+  }
+
+  if (forced) {
+    action_cost = 0;
   }
   
   return action_cost;
@@ -911,8 +916,8 @@ int game_read(const char* filename,
     }
 
     if (info->size == 0) {
-      if (l < 6) {
-        fprintf(stderr, "%s:1: expected at least 5 characters before newline\n",
+      if (l < 3) {
+        fprintf(stderr, "%s:1: expected at least 3 characters before newline\n",
                 filename);
         fclose(fp);
         return 0;
@@ -1101,6 +1106,11 @@ int game_next_move_color(const game_info_t* info,
     size_t best_color = -1;
     int best_free = 4;
 
+    /*
+    size_t worst_color = -1;
+    int worst_free = 0;
+    */
+
     for (size_t i=0; i<info->num_colors; ++i) {
 
       int color = info->color_order[i];
@@ -1116,8 +1126,25 @@ int game_next_move_color(const game_info_t* info,
         best_free = num_free;
         best_color = color;
       }
+      /*
+      if (num_free > worst_free) {
+        worst_free = num_free;
+        worst_color = color;
+      }
+      */
 
     }
+
+    /*
+    if (best_free == 1 && worst_free == 4) {
+      game_print(info, state);
+      printf("color %s has %d free",
+             color_name_str(info, best_color), best_free);
+      printf(" and %s has %d free\n",
+             color_name_str(info, worst_color), worst_free);
+      exit(0);
+    }
+    */
 
     assert(best_color < info->num_colors);
     return best_color;
@@ -2048,7 +2075,7 @@ int game_check_chokepoint(const game_info_t* info,
            color_cell_str(info, cell_create(TYPE_PATH, color, dir)));
     assert( state_copy.cells[pos_offset_pos(info, state_copy.pos[color], dir)] == 0 );
     */
-    game_make_move(info, &state_copy, color, dir);
+    game_make_move(info, &state_copy, color, dir, 1);
   }
 
   // Build new region map
@@ -2188,7 +2215,7 @@ void game_diagnostics(const game_info_t* info,
         break;
       }
 
-      game_make_move(info, &state_copy, color, dir);
+      game_make_move(info, &state_copy, color, dir, 1);
       
     }
     
@@ -2223,7 +2250,7 @@ tree_node_t* game_validate_ff(const game_info_t* info,
       if (forced_child) {
 
         game_make_move(info, &forced_child->state,
-                       color, dir);
+                       color, dir, 1);
 
         node_update_costs(info, forced_child, 0);
         forced_child = game_validate_ff(info, forced_child, storage);
@@ -2371,7 +2398,7 @@ int game_search(const game_info_t* info,
         }
 
         size_t action_cost = game_make_move(info, &child->state,
-                                            color, dir);
+                                            color, dir, 0);
         
         node_update_costs(info, child, action_cost);
 
@@ -2382,8 +2409,7 @@ int game_search(const game_info_t* info,
           const game_state_t* child_state = &child->state;
           
           if ( child_state->num_free == 0 && 
-               ( queue_empty(&q) ||
-                 node_compare(child, queue_peek(&q) ) <= 0) ) {          
+               child_state->completed == (1 << info->num_colors) - 1 ) {
           
             result = SEARCH_SUCCESS;
             solution_node = child;
