@@ -1700,14 +1700,7 @@ int game_find_forced(const game_info_t* info,
 
         }
 
-      } // for each neighbor
-
-      if (num_free == 1) {
-        assert(free_dir >= 0 && free_dir < 4);
-        *forced_color = color;
-        *forced_dir = free_dir;
-      }
-      
+      } // for each neighbor      
 
   }
 
