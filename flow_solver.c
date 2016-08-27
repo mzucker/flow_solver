@@ -831,9 +831,7 @@ double game_make_move(const game_info_t* info,
   state->pos[color] = new_pos;
   --state->num_free;
 
-  if (!forced) {
-    state->last_color = color;
-  }
+  state->last_color = color;
 
   double action_cost = 1;
 
