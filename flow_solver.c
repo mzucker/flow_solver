@@ -2906,8 +2906,9 @@ int main(int argc, char** argv) {
         if (l > 1019) { l = 1019; }
         strncpy(output_file, input_file+start, l);
 
-        for (const char* ext=".svg"; *ext; output_file[l++] = *ext++)
-          ;
+        for (int i=0; i<5; ++i) {
+          output_file[l++] = ".svg"[i];
+        }
         
         game_save_svg(output_file, &info, &final_state);
         if (!g_options.display_quiet) {
