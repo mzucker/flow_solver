@@ -2548,7 +2548,7 @@ void usage(FILE* fp, int exitcode) {
           "  -B, --breadth-first     Breadth-first search instead of best-first\n"
           "  -n, --max-nodes N       Restrict storage to N nodes\n"
           "  -m, --max-storage N     Restrict storage to N MB (default %'g)\n"
-          "  -Q, --queue-always      Disable \"fast-forward\" bypassing queue for forced moves\n"
+          "  -Q, --queue-always      Disable \"fast-forward\" queue bypassing\n"
           "\n"
           "Options affecting the next input file:\n\n"
           "  -o, --order ORDER       Set color order on command line\n"
@@ -2736,6 +2736,10 @@ size_t parse_options(int argc, char** argv,
 
         user_orders[num_inputs] = get_argument(argc, argv, &i);
         
+      } else if (match_short_char == 'h') {
+
+        usage(stdout, 0);
+
       } else { // should not happen
 
         fprintf(stderr, "unrecognized option: %s\n\n", opt);
