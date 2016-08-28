@@ -2528,7 +2528,7 @@ void usage(FILE* fp, int exitcode) {
 #ifndef _WIN32          
           "  -C, --color             Force use of ANSI color\n"
 #endif
-          "  -S, --svg OUTPUT.svg    Output final state to SVG\n"
+          "  -S, --svg               Output final state to SVG\n"
           "\n"
           "Node evaluation options:\n\n"
           "  -t, --touch             Disable path self-touch test\n"
