@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">
+  <rect width="256" height="256" style="fill: #7b7c41;" />
+  <rect x="1" y="1" width="50" height="50" style="fill: #723939;" />
+  <circle cx="26" cy="26" r="17.5" style="fill: #ff0000;" />
+  <rect x="52" y="1" width="50" height="50" style="fill: #000000;" />
+  <rect x="103" y="1" width="50" height="50" style="fill: #000000;" />
+  <rect x="154" y="1" width="50" height="50" style="fill: #000000;" />
+  <rect x="205" y="1" width="50" height="50" style="fill: #395539;" />
+  <circle cx="230" cy="26" r="17.5" style="fill: #008100;" />
+  <rect x="1" y="52" width="50" height="50" style="fill: #723939;" />
+  <rect x="52" y="52" width="50" height="50" style="fill: #000000;" />
+  <rect x="103" y="52" width="50" height="50" style="fill: #000000;" />
+  <rect x="154" y="52" width="50" height="50" style="fill: #000000;" />
+  <rect x="205" y="52" width="50" height="50" style="fill: #000000;" />
+  <rect x="1" y="103" width="50" height="50" style="fill: #723939;" />
+  <rect x="52" y="103" width="50" height="50" style="fill: #000000;" />
+  <rect x="103" y="103" width="50" height="50" style="fill: #000000;" />
+  <rect x="154" y="103" width="50" height="50" style="fill: #000000;" />
+  <rect x="205" y="103" width="50" height="50" style="fill: #000000;" />
+  <rect x="1" y="154" width="50" height="50" style="fill: #723939;" />
+  <rect x="52" y="154" width="50" height="50" style="fill: #723939;" />
+  <rect x="103" y="154" width="50" height="50" style="fill: #723939;" />
+  <rect x="154" y="154" width="50" height="50" style="fill: #000000;" />
+  <rect x="205" y="154" width="50" height="50" style="fill: #000000;" />
+  <rect x="1" y="205" width="50" height="50" style="fill: #000000;" />
+  <circle cx="26" cy="230" r="17.5" style="fill: #008100;" />
+  <rect x="52" y="205" width="50" height="50" style="fill: #000000;" />
+  <rect x="103" y="205" width="50" height="50" style="fill: #000000;" />
+  <rect x="154" y="205" width="50" height="50" style="fill: #000000;" />
+  <rect x="205" y="205" width="50" height="50" style="fill: #000000;" />
+  <circle cx="230" cy="230" r="17.5" style="fill: #ff0000;" />
+  <path d="M 128,179 h -51 h -51 v -51 v -51 v -51  " style="stroke: #ff0000; stroke-width: 17.5; fill: none; stroke-linecap: round" />
+</svg>

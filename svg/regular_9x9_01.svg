@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="253" height="253">
+  <rect width="253" height="253" style="fill: #7b7c41;" />
+  <rect x="1" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="29" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="57" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="85" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="113" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="141" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="169" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="197" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="225" y="1" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="1" y="29" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="29" y="29" width="27" height="27" style="fill: #723939;" />
+  <circle cx="42.5" cy="42.5" r="9.45" style="fill: #ff0000;" />
+  <rect x="57" y="29" width="27" height="27" style="fill: #397272;" />
+  <circle cx="70.5" cy="42.5" r="9.45" style="fill: #00ffff;" />
+  <rect x="85" y="29" width="27" height="27" style="fill: #393972;" />
+  <circle cx="98.5" cy="42.5" r="9.45" style="fill: #0000ff;" />
+  <rect x="113" y="29" width="27" height="27" style="fill: #393972;" />
+  <rect x="141" y="29" width="27" height="27" style="fill: #393972;" />
+  <rect x="169" y="29" width="27" height="27" style="fill: #393972;" />
+  <rect x="197" y="29" width="27" height="27" style="fill: #393972;" />
+  <rect x="225" y="29" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="1" y="57" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="29" y="57" width="27" height="27" style="fill: #723939;" />
+  <rect x="57" y="57" width="27" height="27" style="fill: #397272;" />
+  <rect x="85" y="57" width="27" height="27" style="fill: #397272;" />
+  <circle cx="98.5" cy="70.5" r="9.45" style="fill: #00ffff;" />
+  <rect x="113" y="57" width="27" height="27" style="fill: #725539;" />
+  <circle cx="126.5" cy="70.5" r="9.45" style="fill: #ff8000;" />
+  <rect x="141" y="57" width="27" height="27" style="fill: #725539;" />
+  <rect x="169" y="57" width="27" height="27" style="fill: #725539;" />
+  <circle cx="182.5" cy="70.5" r="9.45" style="fill: #ff8000;" />
+  <rect x="197" y="57" width="27" height="27" style="fill: #393972;" />
+  <circle cx="210.5" cy="70.5" r="9.45" style="fill: #0000ff;" />
+  <rect x="225" y="57" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="1" y="85" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="29" y="85" width="27" height="27" style="fill: #723939;" />
+  <rect x="57" y="85" width="27" height="27" style="fill: #723939;" />
+  <rect x="85" y="85" width="27" height="27" style="fill: #723939;" />
+  <rect x="113" y="85" width="27" height="27" style="fill: #723939;" />
+  <rect x="141" y="85" width="27" height="27" style="fill: #723972;" />
+  <rect x="169" y="85" width="27" height="27" style="fill: #723972;" />
+  <rect x="197" y="85" width="27" height="27" style="fill: #723972;" />
+  <circle cx="210.5" cy="98.5" r="9.45" style="fill: #ff00ff;" />
+  <rect x="225" y="85" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="1" y="113" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="29" y="113" width="27" height="27" style="fill: #395539;" />
+  <circle cx="42.5" cy="126.5" r="9.45" style="fill: #008100;" />
+  <rect x="57" y="113" width="27" height="27" style="fill: #395539;" />
+  <rect x="85" y="113" width="27" height="27" style="fill: #395539;" />
+  <circle cx="98.5" cy="126.5" r="9.45" style="fill: #008100;" />
+  <rect x="113" y="113" width="27" height="27" style="fill: #723939;" />
+  <circle cx="126.5" cy="126.5" r="9.45" style="fill: #ff0000;" />
+  <rect x="141" y="113" width="27" height="27" style="fill: #723972;" />
+  <rect x="169" y="113" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="197" y="113" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="225" y="113" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="1" y="141" width="27" height="27" style="fill: #6e6e39;" />
+  <circle cx="14.5" cy="154.5" r="9.45" style="fill: #eeee00;" />
+  <rect x="29" y="141" width="27" height="27" style="fill: #723972;" />
+  <circle cx="42.5" cy="154.5" r="9.45" style="fill: #ff00ff;" />
+  <rect x="57" y="141" width="27" height="27" style="fill: #723972;" />
+  <rect x="85" y="141" width="27" height="27" style="fill: #723972;" />
+  <rect x="113" y="141" width="27" height="27" style="fill: #723972;" />
+  <rect x="141" y="141" width="27" height="27" style="fill: #723972;" />
+  <rect x="169" y="141" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="197" y="141" width="27" height="27" style="fill: #5f4242;" />
+  <circle cx="210.5" cy="154.5" r="9.45" style="fill: #a52a2a;" />
+  <rect x="225" y="141" width="27" height="27" style="fill: #553955;" />
+  <circle cx="238.5" cy="154.5" r="9.45" style="fill: #800080;" />
+  <rect x="1" y="169" width="27" height="27" style="fill: #553955;" />
+  <rect x="29" y="169" width="27" height="27" style="fill: #553955;" />
+  <circle cx="42.5" cy="182.5" r="9.45" style="fill: #800080;" />
+  <rect x="57" y="169" width="27" height="27" style="fill: #6e6e39;" />
+  <circle cx="70.5" cy="182.5" r="9.45" style="fill: #eeee00;" />
+  <rect x="85" y="169" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="113" y="169" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="141" y="169" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="169" y="169" width="27" height="27" style="fill: #6e6e39;" />
+  <rect x="197" y="169" width="27" height="27" style="fill: #5f4242;" />
+  <rect x="225" y="169" width="27" height="27" style="fill: #553955;" />
+  <rect x="1" y="197" width="27" height="27" style="fill: #553955;" />
+  <rect x="29" y="197" width="27" height="27" style="fill: #5f4242;" />
+  <circle cx="42.5" cy="210.5" r="9.45" style="fill: #a52a2a;" />
+  <rect x="57" y="197" width="27" height="27" style="fill: #5f4242;" />
+  <rect x="85" y="197" width="27" height="27" style="fill: #5f4242;" />
+  <rect x="113" y="197" width="27" height="27" style="fill: #5f4242;" />
+  <rect x="141" y="197" width="27" height="27" style="fill: #5f4242;" />
+  <rect x="169" y="197" width="27" height="27" style="fill: #5f4242;" />
+  <rect x="197" y="197" width="27" height="27" style="fill: #5f4242;" />
+  <rect x="225" y="197" width="27" height="27" style="fill: #553955;" />
+  <rect x="1" y="225" width="27" height="27" style="fill: #553955;" />
+  <rect x="29" y="225" width="27" height="27" style="fill: #553955;" />
+  <rect x="57" y="225" width="27" height="27" style="fill: #553955;" />
+  <rect x="85" y="225" width="27" height="27" style="fill: #553955;" />
+  <rect x="113" y="225" width="27" height="27" style="fill: #553955;" />
+  <rect x="141" y="225" width="27" height="27" style="fill: #553955;" />
+  <rect x="169" y="225" width="27" height="27" style="fill: #553955;" />
+  <rect x="197" y="225" width="27" height="27" style="fill: #553955;" />
+  <rect x="225" y="225" width="27" height="27" style="fill: #553955;" />
+  <path d="M 126.5,126.5 v -28 h -28 h -28 h -28 v -28 v -28  " style="stroke: #ff0000; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+  <path d="M 98.5,70.5 h -28 v -28  " style="stroke: #00ffff; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+  <path d="M 210.5,70.5 v -28 h -28 h -28 h -28 h -28  " style="stroke: #0000ff; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+  <path d="M 182.5,70.5 h -28 h -28  " style="stroke: #ff8000; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+  <path d="M 42.5,154.5 h 28 h 28 h 28 h 28 v -28 v -28 h 28 h 28  " style="stroke: #ff00ff; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+  <path d="M 98.5,126.5 h -28 h -28  " style="stroke: #008100; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+  <path d="M 70.5,182.5 h 28 h 28 h 28 h 28 v -28 v -28 h 28 h 28 v -28 v -28 v -28 v -28 h -28 h -28 h -28 h -28 h -28 h -28 h -28 h -28 v 28 v 28 v 28 v 28 v 28  " style="stroke: #eeee00; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+  <path d="M 42.5,210.5 h 28 h 28 h 28 h 28 h 28 h 28 v -28 v -28  " style="stroke: #a52a2a; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+  <path d="M 42.5,182.5 h -28 v 28 v 28 h 28 h 28 h 28 h 28 h 28 h 28 h 28 h 28 v -28 v -28 v -28  " style="stroke: #800080; stroke-width: 9.45; fill: none; stroke-linecap: round" />
+</svg>
