@@ -1554,6 +1554,14 @@ int game_regions_stranded(const game_info_t* info,
                            info->goal_pos[color],
                            cflag, goal_rflags);
 
+    if (!g_options.node_check_touch) {
+      int delta = state->pos[color] - info->goal_pos[color];
+      delta = delta < 0 ? -delta : delta;
+      if (delta == 1 || delta == 16) { // adjacent
+        continue;
+      }
+    }
+
     // Ensure this color is not "stranded" -- at least region must
     // touch each non-completed color for both current and goal.
     size_t r;
@@ -1569,7 +1577,7 @@ int game_regions_stranded(const game_info_t* info,
 
     // There was no region that touched both current and goal,
     // unsolvable from here.
-    if (r == rcount && (for_chokepoint || g_options.node_check_touch)) {
+    if (r == rcount) {
       colors_stranded |= cflag;
       if (++num_stranded >= max_stranded) {
         return colors_stranded;
