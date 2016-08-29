@@ -555,6 +555,11 @@ int game_can_move(const game_info_t* info,
   pos_t new_pos = pos_from_coords(new_x, new_y);
   assert( new_pos < MAX_CELLS );
 
+  if (!g_options.node_check_touch &&
+      new_pos == info->goal_pos[color]) {
+    return 1;
+  }
+
   // Must be empty (TYPE_FREE)
   if (state->cells[new_pos]) {
     return 0;
@@ -823,6 +828,12 @@ double game_make_move(const game_info_t* info,
   pos_t new_pos = pos_from_coords(new_x, new_y);
   assert( new_pos < MAX_CELLS );
 
+  if (!g_options.node_check_touch && new_pos == info->goal_pos[color]) {
+    state->cells[info->goal_pos[color]] = cell_create(TYPE_GOAL, color, dir);
+    state->completed |= 1 << color;
+    return 0;
+  }
+
   // Make sure it's empty
   assert( state->cells[new_pos] == 0 );
 
@@ -836,11 +847,13 @@ double game_make_move(const game_info_t* info,
   double action_cost = 1;
 
   int goal_dir = -1;
-  
-  for (int dir=0; dir<4; ++dir) {
-    if (offset_pos(info, new_x, new_y, dir) == info->goal_pos[color]) {
-      goal_dir = dir;
-      break;
+
+  if (g_options.node_check_touch) {
+    for (int dir=0; dir<4; ++dir) {
+      if (offset_pos(info, new_x, new_y, dir) == info->goal_pos[color]) {
+        goal_dir = dir;
+        break;
+      }
     }
   }
 
@@ -1556,7 +1569,7 @@ int game_regions_stranded(const game_info_t* info,
 
     // There was no region that touched both current and goal,
     // unsolvable from here.
-    if (r == rcount) {
+    if (r == rcount && (for_chokepoint || g_options.node_check_touch)) {
       colors_stranded |= cflag;
       if (++num_stranded >= max_stranded) {
         return colors_stranded;
