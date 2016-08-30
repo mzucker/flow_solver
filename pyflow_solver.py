@@ -2,12 +2,10 @@
 # -*- coding: utf-8 -*-
 
 import sys
-import pycosat
 import operator
 import itertools
-
 from datetime import datetime
-
+import pycosat
 
 LEFT = 1
 RIGHT = 2
@@ -105,7 +103,7 @@ def make_colors(filename, puzzle):
         if not color_count[color]:
             print 'color {} has start but no end!'.format(char)
             return None
-                    
+
     return colors
 
 ######################################################################
@@ -115,7 +113,7 @@ def make_color_clauses(puzzle, colors, color_var):
     clauses = []
     num_colors = len(colors)
     size = len(puzzle)
-    
+
     # for each cell
     for i, j, char in explode(puzzle):
 
@@ -133,8 +131,8 @@ def make_color_clauses(puzzle, colors, color_var):
                     clauses.append([-color_var(i, j, other_color)])
 
             # gather neighbors' variables for this color
-            neighbor_vars = [ color_var(ni, nj, solved_color) for
-                              dir_bit, ni, nj in valid_neighbors(size, i, j) ]
+            neighbor_vars = [color_var(ni, nj, solved_color) for
+                             _, ni, nj in valid_neighbors(size, i, j)]
 
             # one neighbor has this color
             clauses.append(neighbor_vars)
@@ -151,7 +149,7 @@ def make_color_clauses(puzzle, colors, color_var):
             # no two of the colors in this cell are set
             cell_color_vars = (color_var(i, j, color) for
                                color in range(num_colors))
-            
+
             clauses.extend(no_two(cell_color_vars))
 
     return clauses
@@ -175,13 +173,13 @@ def make_dir_vars(puzzle, start_var):
 
         cell_flags = reduce(operator.or_, neighbor_bits, 0)
 
-        dir_vars[i,j] = dict()
+        dir_vars[i, j] = dict()
 
         for code in DIR_CODES:
             if cell_flags & code == code:
                 num_dir_vars += 1
-                dir_vars[i,j][code] = start_var + num_dir_vars
- 
+                dir_vars[i, j][code] = start_var + num_dir_vars
+
     return dir_vars, num_dir_vars
 
 ######################################################################
@@ -193,30 +191,30 @@ def make_dir_clauses(puzzle, colors, color_var, dir_vars):
     size = len(puzzle)
 
     for i, j, char in explode(puzzle):
-        
+
         if char.isalnum():
             continue
-            
-        cell_dir_dict = dir_vars[(i,j)]
+
+        cell_dir_dict = dir_vars[(i, j)]
         cell_dir_vars = cell_dir_dict.values()
 
         dir_clauses.append(cell_dir_vars)
 
-        for da, db in allpairs(cell_dir_vars):
-            dir_clauses.append([-da, -db])
+        for dir_a, dir_b in allpairs(cell_dir_vars):
+            dir_clauses.append([-dir_a, -dir_b])
 
         for dir_code, dir_var in cell_dir_dict.iteritems():
-            
-            for dir_bit, ni, nj in all_neighbors(i, j):
+
+            for dir_bit, n_i, n_j in all_neighbors(i, j):
 
                 for color in range(num_colors):
-                    c1 = color_var(i, j, color)
-                    c2 = color_var(ni, nj, color)
+                    color_1 = color_var(i, j, color)
+                    color_2 = color_var(n_i, n_j, color)
                     if dir_code & dir_bit:
-                        dir_clauses.append([-dir_var, -c1, c2])
-                        dir_clauses.append([-dir_var, c1, -c2])
-                    elif valid_pos(size, ni, nj):
-                        dir_clauses.append([-dir_var, -c1, -c2])
+                        dir_clauses.append([-dir_var, -color_1, color_2])
+                        dir_clauses.append([-dir_var, color_1, -color_2])
+                    elif valid_pos(size, n_i, n_j):
+                        dir_clauses.append([-dir_var, -color_1, -color_2])
 
     return dir_clauses
 
@@ -227,12 +225,10 @@ def show_solution(puzzle, colors, color_var, dir_vars, sol):
     sol = set(sol)
     size = len(puzzle)
 
-    row = []    
-
     for i, j, char in explode(puzzle):
 
         output = None
-        
+
         for color_char, color in colors.iteritems():
             if color_var(i, j, color) in sol:
                 assert output is None
@@ -245,7 +241,7 @@ def show_solution(puzzle, colors, color_var, dir_vars, sol):
         if char.isalnum():
             boxchar = 'O'
         else:
-            for dir_code, dir_var in dir_vars[i,j].iteritems():
+            for dir_code, dir_var in dir_vars[i, j].iteritems():
                 if dir_var in sol:
                     assert boxchar is None
                     boxchar = DIR_LOOKUP[dir_code]
@@ -256,7 +252,7 @@ def show_solution(puzzle, colors, color_var, dir_vars, sol):
                 ANSI_LOOKUP[output], boxchar)
 
         sys.stdout.write(output)
-        
+
         if j+1 == size:
             sys.stdout.write('\n')
 
@@ -265,9 +261,9 @@ def show_solution(puzzle, colors, color_var, dir_vars, sol):
 def pyflow_solver():
 
     for filename in sys.argv[1:]:
-        
+
         with open(filename, 'r') as infile:
-            puzzle =  infile.read().splitlines()
+            puzzle = infile.read().splitlines()
 
         size = len(puzzle[0])
         puzzle = puzzle[:size]
@@ -286,7 +282,7 @@ def pyflow_solver():
         num_cells = size**2
         num_color_vars = num_colors * num_cells
 
-        def color_var(i, j, color):
+        def color_var(i, j, color, num_colors=num_colors, size=size):
             return (i*size + j)*num_colors + color + 1
 
         start = datetime.now()
@@ -303,10 +299,10 @@ def pyflow_solver():
 
         num_vars = num_color_vars + num_dir_vars
         clauses = color_clauses + dir_clauses
-        
+
         print 'generated {:,} clauses over {:,} color variables'.format(
             len(color_clauses), num_color_vars, grouping=True)
-        
+
         print 'generated {:,} dir clauses over {:,} dir variables'.format(
             len(dir_clauses), num_dir_vars)
 
@@ -322,7 +318,8 @@ def pyflow_solver():
         start = datetime.now()
         num_solutions = 0
 
-        for sol in pycosat.itersolve(clauses):
+        # for some reason pylint complains about pycosat members being undefined :(
+        for sol in pycosat.itersolve(clauses): # pylint: disable=E1101
 
             end = datetime.now()
             solve_elapsed = (end - start).total_seconds()
@@ -332,7 +329,7 @@ def pyflow_solver():
 
             print 'solver completed in {:.3f} seconds'.format(solve_elapsed)
 
-            if type(sol) == list:
+            if isinstance(sol, list):
                 print
                 show_solution(puzzle, colors, color_var, dir_vars, sol)
                 print
@@ -340,7 +337,7 @@ def pyflow_solver():
             if num_solutions > 1:
                 print 'oh, no - more than one solution for', filename
                 sys.exit(1)
-                
+
         if not num_solutions:
             print 'no solutions found!'
             print
@@ -348,8 +345,8 @@ def pyflow_solver():
         print 'all done after {:.3f} seconds total'.format(
             total_elapsed)
 
-                                                       
+
 ######################################################################
-        
+
 if __name__ == '__main__':
     pyflow_solver()
