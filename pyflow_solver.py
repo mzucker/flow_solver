@@ -49,6 +49,11 @@ def allpairs(collection):
 
 ######################################################################
 
+def no_two(varlist):
+    return ((-a, -b) for (a, b) in allpairs(varlist))
+
+######################################################################
+
 def explode(puzzle):
     for i, row in enumerate(puzzle):
         for j, char in enumerate(row):
@@ -62,8 +67,8 @@ def valid_pos(size, i, j):
 ######################################################################
 
 def all_neighbors(i, j):
-    return ((dir_bit, i+delta_i, j+delta_j) for (dir_bit, delta_i, delta_j)
-            in DELTAS)
+    return ((dir_bit, i+delta_i, j+delta_j)
+            for (dir_bit, delta_i, delta_j) in DELTAS)
 
 def valid_neighbors(size, i, j):
     return ((dir_bit, ni, nj) for (dir_bit, ni, nj)
@@ -135,8 +140,7 @@ def make_color_clauses(puzzle, colors, color_var):
             clauses.append(neighbor_vars)
 
             # no two neighbors have this color
-            for c1, c2 in allpairs(neighbor_vars):
-                clauses.append([-c1, -c2])
+            clauses.extend(no_two(neighbor_vars))
 
         else:
 
@@ -145,9 +149,10 @@ def make_color_clauses(puzzle, colors, color_var):
                             for color in range(num_colors)])
 
             # no two of the colors in this cell are set
-            for ca, cb in allpairs(range(num_colors)):
-                clauses.append([-color_var(i, j, ca),
-                                -color_var(i, j, cb)])
+            cell_color_vars = (color_var(i, j, color) for
+                               color in range(num_colors))
+            
+            clauses.extend(no_two(cell_color_vars))
 
     return clauses
 
@@ -336,6 +341,10 @@ def pyflow_solver():
                 show_solution(puzzle, colors, color_var, dir_vars, sol)
                 print
 
+            if num_solutions > 1:
+                print 'oh, no - more than one solution for', filename
+                sys.exit(1)
+                
         if not num_solutions:
             print 'no solutions found!'
             print
@@ -343,9 +352,6 @@ def pyflow_solver():
         print 'all done after {:.3f} seconds total'.format(
             total_elapsed)
 
-        if num_solutions > 1:
-            print 'oh, no - more than one solution for', filename
-            sys.exit(0)
                                                        
 ######################################################################
         
