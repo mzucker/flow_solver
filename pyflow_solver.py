@@ -285,13 +285,9 @@ def pyflow_solver():
 
         num_cells = size**2
         num_color_vars = num_colors * num_cells
-        num_path_vars = num_cells*num_cells
 
         def color_var(i, j, color):
             return (i*size + j)*num_colors + color + 1
-
-        def path_var(i, j, length):
-            return (i*size + j)*num_cells + length + 1
 
         start = datetime.now()
 
