@@ -14,10 +14,10 @@ RIGHT = 2
 TOP = 4
 BOTTOM = 8
 
-DELTAS = [ (LEFT, 0, -1),
-           (RIGHT, 0, 1),
-           (TOP, -1, 0),
-           (BOTTOM, 1, 0) ]
+DELTAS = [(LEFT, 0, -1),
+          (RIGHT, 0, 1),
+          (TOP, -1, 0),
+          (BOTTOM, 1, 0)]
 
 LR = LEFT | RIGHT
 TB = TOP | BOTTOM
@@ -26,7 +26,7 @@ TR = TOP | RIGHT
 BL = BOTTOM | LEFT
 BR = BOTTOM | RIGHT
 
-DIR_CODES = [ LR, TB, TL, TR, BL, BR ]
+DIR_CODES = [LR, TB, TL, TR, BL, BR]
 
 ANSI_LOOKUP = dict(R=101, B=104, Y=103, G=42,
                    O=43, C=106, M=105, m=41,
@@ -280,9 +280,13 @@ def pyflow_solver():
 
         num_cells = size**2
         num_color_vars = num_colors * num_cells
+        num_path_vars = num_cells*num_cells
 
         def color_var(i, j, color):
             return (i*size + j)*num_colors + color + 1
+
+        def path_var(i, j, length):
+            return (i*size + j)*num_cells + length + 1
 
         start = datetime.now()
 
@@ -315,7 +319,7 @@ def pyflow_solver():
         print
 
         start = datetime.now()
-        have_solution = False
+        num_solutions = 0
 
         for sol in pycosat.itersolve(clauses):
 
@@ -323,7 +327,7 @@ def pyflow_solver():
             solve_elapsed = (end - start).total_seconds()
             total_elapsed += solve_elapsed
             start = end
-            have_solution = True
+            num_solutions += 1
 
             print 'solver completed in {:.3f} seconds'.format(solve_elapsed)
 
@@ -332,12 +336,16 @@ def pyflow_solver():
                 show_solution(puzzle, colors, color_var, dir_vars, sol)
                 print
 
-        if not have_solution:
+        if not num_solutions:
             print 'no solutions found!'
             print
 
         print 'all done after {:.3f} seconds total'.format(
             total_elapsed)
+
+        if num_solutions > 1:
+            print 'oh, no - more than one solution for', filename
+            sys.exit(0)
                                                        
 ######################################################################
         
