@@ -1,11 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+'''Module to solve Flow Free puzzles by reducing to SAT and invoking
+pycosat's solver. The reduction to SAT does not automatically prevent
+cycles from appearing which are disconnected from the pre-colored
+cells; however, they are detected, and the solver will be run until
+all cycles are eliminated.
+
+'''
+
 import sys
 import operator
 import itertools
 from datetime import datetime
 import pycosat
+
 
 LEFT = 1
 RIGHT = 2
@@ -47,19 +56,33 @@ DIR_LOOKUP = {
     BR: '┌'
     }
 
+QUIET = False
+
 ######################################################################
 
 def allpairs(collection):
+    '''Return all combinations of two items from a collection, useful for
+    making a large number of SAT variables mutually exclusive.
+
+    '''
     return itertools.combinations(collection, 2)
 
 ######################################################################
 
-def no_two(varlist):
-    return ((-a, -b) for (a, b) in allpairs(varlist))
+def no_two(satvars):
+    '''Given a collection of SAT variables, generates clauses specifying
+    that no two of them can be true at the same time.
+
+    '''
+    return ((-a, -b) for (a, b) in allpairs(satvars))
 
 ######################################################################
 
 def explode(puzzle):
+    '''Iterator helper function to allow looping over 2D arrays without
+    nested 'for' loops.
+
+    '''
     for i, row in enumerate(puzzle):
         for j, char in enumerate(row):
             yield i, j, char
@@ -67,15 +90,23 @@ def explode(puzzle):
 ######################################################################
 
 def valid_pos(size, i, j):
+    '''Check whether a position on a square grid is valid.'''
     return i >= 0 and i < size and j >= 0 and j < size
 
 ######################################################################
 
 def all_neighbors(i, j):
+    '''Return all neighbors of a grid square at row i, column j.'''
     return ((dir_bit, i+delta_i, j+delta_j)
             for (dir_bit, delta_i, delta_j) in DELTAS)
 
+######################################################################
+
 def valid_neighbors(size, i, j):
+    '''Return all actual on-grid neighbors of a grid square at row i,
+    column j.
+
+    '''
     return ((dir_bit, ni, nj) for (dir_bit, ni, nj)
             in all_neighbors(i, j)
             if valid_pos(size, ni, nj))
@@ -110,6 +141,10 @@ def make_colors(filename, puzzle):
         if not color_count[color]:
             print 'color {} has start but no end!'.format(char)
             return None
+
+    print 'read {}x{} puzzle with {} colors from {}'.format(
+        size, size, len(colors), filename)
+    print
 
     return colors
 
@@ -160,7 +195,6 @@ def make_color_clauses(puzzle, colors, color_var):
             clauses.extend(no_two(cell_color_vars))
 
     return clauses
-
 
 ######################################################################
 
@@ -227,10 +261,9 @@ def make_dir_clauses(puzzle, colors, color_var, dir_vars):
 
 ######################################################################
 
-def decode_solution(puzzle, colors, color_var, dir_vars, sol):
+def decode_solution(puzzle, num_colors, color_var, dir_vars, sol):
 
     sol = set(sol)
-    num_colors = len(colors)
 
     decoded = []
 
@@ -379,7 +412,53 @@ def show_solution(colors, decoded):
 
 ######################################################################
 
+def assemble(puzzle, colors):
+
+    size = len(puzzle)
+    num_colors = len(colors)
+
+    num_cells = size**2
+    num_color_vars = num_colors * num_cells
+
+    def color_var(i, j, color):
+        return (i*size + j)*num_colors + color + 1
+
+    start = datetime.now()
+
+    color_clauses = make_color_clauses(puzzle,
+                                       colors,
+                                       color_var)
+
+    dir_vars, num_dir_vars = make_dir_vars(puzzle, num_color_vars)
+
+    dir_clauses = make_dir_clauses(puzzle, colors,
+                                   color_var, dir_vars)
+
+    num_vars = num_color_vars + num_dir_vars
+    clauses = color_clauses + dir_clauses
+
+    assemble_elapsed = (datetime.now() - start).total_seconds()
+
+    print 'generated {:,} clauses over {:,} color variables'.format(
+        len(color_clauses), num_color_vars, grouping=True)
+
+    print 'generated {:,} dir clauses over {:,} dir variables'.format(
+        len(dir_clauses), num_dir_vars)
+
+    print 'total {:,} clauses over {:,} variables'.format(
+        len(clauses), num_vars)
+
+    print 'assembled CNF in {:.3f} seconds'.format(assemble_elapsed)
+    print
+
+    return color_var, dir_vars, clauses
+
+
+######################################################################
+
 def solve(puzzle, colors, color_var, dir_vars, clauses):
+
+    start = datetime.now()
 
     decoded = None
     repairs = 0
@@ -391,7 +470,7 @@ def solve(puzzle, colors, color_var, dir_vars, clauses):
         if not isinstance(sol, list):
             break
 
-        decoded = decode_solution(puzzle, colors, color_var, dir_vars, sol)
+        decoded = decode_solution(puzzle, len(colors), color_var, dir_vars, sol)
 
         extra_clauses = detect_cycles(decoded, dir_vars)
 
@@ -400,6 +479,20 @@ def solve(puzzle, colors, color_var, dir_vars, clauses):
 
         clauses += extra_clauses
         repairs += 1
+
+    solve_elapsed = (datetime.now() - start).total_seconds()
+
+    if decoded is None:
+        print 'solver returned {} after {:,} cycle '\
+            'repairs and {:.3f} seconds'.format(
+                str(sol), repairs, solve_elapsed)
+
+    else:
+        print 'obtained solution after {:,} cycle repairs '\
+            'and {:.3f} seconds:'.format(
+                repairs, solve_elapsed)
+        print
+        show_solution(colors, decoded)
 
     return sol, decoded, repairs
 
@@ -417,80 +510,17 @@ def pyflow_solver():
         size = len(puzzle[0])
         puzzle = puzzle[:size]
 
+        if not first:
+            print '\n'+('*'*70)+'\n'
+
         colors = make_colors(filename, puzzle)
         if colors is None:
             continue
 
-        size = len(puzzle)
-        num_colors = len(colors)
-
-        if not first:
-            print
-            print '*'*70
-            print
+        color_var, dir_vars, clauses = assemble(puzzle, colors)
+        solve(puzzle, colors, color_var, dir_vars, clauses)
 
         first = False
-
-        print 'read {}x{} puzzle with {} colors from {}'.format(
-            size, size, num_colors, filename)
-        print
-
-        num_cells = size**2
-        num_color_vars = num_colors * num_cells
-
-        def color_var(i, j, color, num_colors=num_colors, size=size):
-            return (i*size + j)*num_colors + color + 1
-
-        start = datetime.now()
-
-        color_clauses = make_color_clauses(puzzle,
-                                           colors,
-                                           color_var)
-
-
-        dir_vars, num_dir_vars = make_dir_vars(puzzle, num_color_vars)
-
-        dir_clauses = make_dir_clauses(puzzle, colors,
-                                       color_var, dir_vars)
-
-        num_vars = num_color_vars + num_dir_vars
-        clauses = color_clauses + dir_clauses
-
-        print 'generated {:,} clauses over {:,} color variables'.format(
-            len(color_clauses), num_color_vars, grouping=True)
-
-        print 'generated {:,} dir clauses over {:,} dir variables'.format(
-            len(dir_clauses), num_dir_vars)
-
-        print 'total {:,} clauses over {:,} variables'.format(
-            len(clauses), num_vars)
-
-        assemble_elapsed = (datetime.now() - start).total_seconds()
-
-        print 'assembled CNF in {:.3f} seconds'.format(assemble_elapsed)
-        print
-
-        start = datetime.now()
-
-        sol, decoded, repairs = solve(puzzle, colors, color_var, dir_vars, clauses)
-
-        solve_elapsed = (datetime.now() - start).total_seconds()
-
-        if decoded is None:
-            print 'solver returned {} after {:,} cycle '\
-                'repairs and {:.3f} seconds'.format(
-                    str(sol), repairs, solve_elapsed)
-
-        else:
-            print 'obtained solution after {:,} cycle repairs '\
-                'and {:.3f} seconds:'.format(
-                    repairs, solve_elapsed)
-            print
-            show_solution(colors, decoded)
-
-        print
-        print 'all done after {:.3f} seconds total'.format(
-            assemble_elapsed + solve_elapsed)
 
 ######################################################################
 
