@@ -124,21 +124,18 @@ column j.'''
 
 ######################################################################
 
-def parse_puzzle(args, filename):
+def parse_puzzle(options, file_or_str):
 
-    '''Read in the given file and parse it into a square array of strings,
-as well as a dictionary which maps input characters to color
+    '''Convert the given string or file object into a square array of
+strings. Also return a dictionary which maps input characters to color
 indices.
 
     '''
 
-    # open file
-    try:
-        with open(filename, 'r') as infile:
-            puzzle = infile.read().splitlines()
-    except IOError:
-        print '{}: error opening file'.format(filename)
-        return None, None
+    if not isinstance(file_or_str, str):
+        file_or_str = file_or_str.read()
+
+    puzzle = file_or_str.splitlines()
 
     # assume size based on length of first line
     size = len(puzzle[0])
@@ -180,7 +177,7 @@ indices.
             return None, None
 
     # print info
-    if not args.quiet:
+    if not options.quiet:
         print 'read {}x{} puzzle with {} colors from {}'.format(
             size, size, len(colors), filename)
         print
@@ -332,7 +329,7 @@ directions imply color matching with neighbors.
 
 ######################################################################
 
-def reduce_to_sat(args, puzzle, colors):
+def reduce_to_sat(options, puzzle, colors):
 
     '''Reduces the given puzzle to a SAT problem specified in CNF. Returns
 a list of clauses where each clause is a list of single SAT variables,
@@ -369,7 +366,7 @@ possibly negated.
 
     reduce_time = (datetime.now() - start).total_seconds()
 
-    if not args.quiet:
+    if not options.quiet:
         print 'generated {:,} clauses over {:,} color variables'.format(
             len(color_clauses), num_color_vars, grouping=True)
 
@@ -553,7 +550,7 @@ to prevent them.
 
 ######################################################################
 
-def show_solution(args, colors, decoded):
+def show_solution(options, colors, decoded):
 
     '''Print the puzzle solution to the terminal.'''
 
@@ -573,14 +570,14 @@ def show_solution(args, colors, decoded):
             color_char = color_chars[color]
 
             if dir_type == -1:
-                if args.display_color:
+                if options.display_color:
                     display_char = 'O'
                 else:
                     display_char = color_char
             else:
                 display_char = DIR_LOOKUP[dir_type]
 
-            if args.display_color:
+            if options.display_color:
 
                 if ANSI_LOOKUP.has_key(color_char):
                     ansi_code = ANSI_CELL_FORMAT.format(
@@ -592,14 +589,14 @@ def show_solution(args, colors, decoded):
 
             sys.stdout.write(display_char)
 
-        if args.display_color:
+        if options.display_color:
             sys.stdout.write(ANSI_RESET)
 
         sys.stdout.write('\n')
 
 ######################################################################
 
-def solve_sat(args, puzzle, colors, color_var, dir_vars, clauses):
+def solve_sat(options, puzzle, colors, color_var, dir_vars, clauses):
 
     '''Solve the SAT now that it has been reduced to a list of clauses in
 CNF.  This is an iterative process: first we try to solve a SAT, then
@@ -612,6 +609,7 @@ needed.
 
     start = datetime.now()
 
+    decoded = None
     all_decoded = []
     repairs = 0
 
@@ -635,12 +633,12 @@ needed.
 
     solve_time = (datetime.now() - start).total_seconds()
 
-    if not args.quiet:
-        if args.display_cycles:
+    if not options.quiet:
+        if options.display_cycles:
             for cycle_decoded in all_decoded[:-1]:
                 print 'intermediate solution with cycles:'
                 print
-                show_solution(args, colors, cycle_decoded)
+                show_solution(options, colors, cycle_decoded)
                 print
 
         if decoded is None:
@@ -653,25 +651,25 @@ needed.
                 'and {:.3f} seconds:'.format(
                     repairs, solve_time)
             print
-            show_solution(args, colors, decoded)
+            show_solution(options, colors, decoded)
             print
 
     return sol, decoded, repairs, solve_time
 
 ######################################################################
 
-def print_summary(args, puzzle_count, all_repairs,
+def print_summary(options, puzzle_count, all_repairs,
                   reduce_times, solve_times, total_times, counts):
 
     '''Print out stats for all solutions.'''
 
-    max_width = max(len(f) for f in args.filenames)
+    max_width = max(len(f) for f in options.filenames)
 
     if puzzle_count > 1:
 
         solution_types = all_repairs.keys()
 
-        if not args.quiet:
+        if not options.quiet:
 
             print '\n'+('*'*70)+'\n'
 
@@ -751,10 +749,9 @@ def pyflow_solver_main():
                         action='store_true',
                         help='always display color')
 
-    args = parser.parse_args()
+    options = parser.parse_args()
 
-
-    max_width = max(len(f) for f in args.filenames)
+    max_width = max(len(f) for f in options.filenames)
 
     puzzle_count = 0
     all_repairs = defaultdict(int)
@@ -763,22 +760,28 @@ def pyflow_solver_main():
     total_times = defaultdict(float)
     counts = defaultdict(int)
 
-    for filename in args.filenames:
+    for filename in options.filenames:
 
-        if not args.quiet and puzzle_count:
+        if not options.quiet and puzzle_count:
             print '\n'+('*'*70)+'\n'
 
-        puzzle, colors = parse_puzzle(args, filename)
+        # open file
+        try:
+            with open(filename, 'r') as infile:
+                puzzle, colors = parse_puzzle(options, infile)
+        except IOError:
+            print '{}: error opening file'.format(filename)
+            continue
 
         if colors is None:
             continue
 
         puzzle_count += 1
 
-        color_var, dir_vars, clauses, reduce_time = reduce_to_sat(args, puzzle,
+        color_var, dir_vars, clauses, reduce_time = reduce_to_sat(options, puzzle,
                                                                   colors)
 
-        sol, _, repairs, solve_time = solve_sat(args, puzzle, colors,
+        sol, _, repairs, solve_time = solve_sat(options, puzzle, colors,
                                                 color_var, dir_vars, clauses)
 
         total_time = reduce_time + solve_time
@@ -796,7 +799,7 @@ def pyflow_solver_main():
         total_times[result_char] += total_time
         counts[result_char] += 1
 
-        if not args.quiet:
+        if not options.quiet:
             print 'finished in total of {:.3f} seconds'.format(
                 total_time)
         else:
@@ -805,7 +808,7 @@ def pyflow_solver_main():
                 filename, max_width, result_char,
                 reduce_time, solve_time, repairs, total_time)
 
-    print_summary(args, puzzle_count, all_repairs,
+    print_summary(options, puzzle_count, all_repairs,
                   reduce_times, solve_times, total_times, counts)
 
 
