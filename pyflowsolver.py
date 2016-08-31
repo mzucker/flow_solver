@@ -613,8 +613,9 @@ def pyflow_solver_main():
             continue
 
         color_var, dir_vars, clauses, reduce_time = reduce_to_sat(puzzle, colors)
+
         sol, _, repairs, solve_time = solve_sat(puzzle, colors, color_var,
-                                              dir_vars, clauses)
+                                                dir_vars, clauses)
 
         total_time = reduce_time + solve_time
 
@@ -628,7 +629,7 @@ def pyflow_solver_main():
                 result_char = 'u'
             else:
                 result_char = 'f'
-                
+
             print '{:>{}s} {} {:3d} {:12,.3f} {:12,.3f} {:12,.3f}'.format(
                 filename, max_width, result_char, repairs,
                 reduce_time, solve_time, total_time)
