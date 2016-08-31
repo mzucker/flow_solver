@@ -69,7 +69,7 @@ RESULT_STRINGS = dict(s='successful',
 
 ######################################################################
 
-def allpairs(collection):
+def all_pairs(collection):
     '''Return all combinations of two items from a collection, useful for
 making a large number of SAT variables mutually exclusive.
 
@@ -85,7 +85,7 @@ that no two of them can be true at the same time.
 
     '''
 
-    return ((-a, -b) for (a, b) in allpairs(satvars))
+    return ((-a, -b) for (a, b) in all_pairs(satvars))
 
 ######################################################################
 
