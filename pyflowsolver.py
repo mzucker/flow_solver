@@ -612,7 +612,7 @@ needed.
 
     start = datetime.now()
 
-    decoded = None
+    all_decoded = []
     repairs = 0
 
     while True:
@@ -623,6 +623,7 @@ needed.
             break
 
         decoded = decode_solution(puzzle, colors, color_var, dir_vars, sol)
+        all_decoded.append(decoded)
 
         extra_clauses = detect_cycles(decoded, dir_vars)
 
@@ -635,6 +636,13 @@ needed.
     solve_time = (datetime.now() - start).total_seconds()
 
     if not args.quiet:
+        if args.display_cycles:
+            for cycle_decoded in all_decoded[:-1]:
+                print 'intermediate solution with cycles:'
+                print
+                show_solution(args, colors, cycle_decoded)
+                print
+
         if decoded is None:
             print 'solver returned {} after {:,} cycle '\
                 'repairs and {:.3f} seconds'.format(
@@ -734,6 +742,10 @@ def pyflow_solver_main():
     parser.add_argument('-q', dest='quiet', default=False,
                         action='store_true',
                         help='quiet mode (reduce output)')
+
+    parser.add_argument('-c', dest='display_cycles', default=False,
+                        action='store_true',
+                        help='display intermediate solutions with cycles')
 
     parser.add_argument('-C', dest='display_color', default=color_capable,
                         action='store_true',
