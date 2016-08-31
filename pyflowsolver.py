@@ -600,6 +600,8 @@ def pyflow_solver_main():
 
     first = True
 
+    max_width = max(len(f) for f in args.filenames)
+
     for filename in args.filenames:
 
         if not QUIET and not first:
@@ -627,8 +629,8 @@ def pyflow_solver_main():
             else:
                 result_char = 'f'
                 
-            print '{:{}s} {} {:3d} {:12,.3f} {:12,.3f} {:12,.3f}'.format(
-                filename, 30, result_char, repairs,
+            print '{:>{}s} {} {:3d} {:12,.3f} {:12,.3f} {:12,.3f}'.format(
+                filename, max_width, result_char, repairs,
                 reduce_time, solve_time, total_time)
 
         first = False
