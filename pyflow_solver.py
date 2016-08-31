@@ -26,6 +26,13 @@ BR = BOTTOM | RIGHT
 
 DIR_CODES = [LR, TB, TL, TR, BL, BR]
 
+DIR_FLIP = {
+    LEFT: RIGHT,
+    RIGHT: LEFT,
+    TOP: BOTTOM,
+    BOTTOM: TOP
+    }
+
 ANSI_LOOKUP = dict(R=101, B=104, Y=103, G=42,
                    O=43, C=106, M=105, m=41,
                    P=45, A=100, W=107, g=102,
@@ -220,45 +227,187 @@ def make_dir_clauses(puzzle, colors, color_var, dir_vars):
 
 ######################################################################
 
-def show_solution(puzzle, colors, color_var, dir_vars, sol):
+def decode_solution(puzzle, colors, color_var, dir_vars, sol):
 
     sol = set(sol)
-    size = len(puzzle)
+    num_colors = len(colors)
 
-    for i, j, char in explode(puzzle):
+    decoded = []
 
-        output = None
+    # fill each cell with color/dircode
+    for i, row in enumerate(puzzle):
 
-        for color_char, color in colors.iteritems():
-            if color_var(i, j, color) in sol:
-                assert output is None
-                output = color_char
+        decoded_row = []
 
-        assert output is not None
+        for j, char in enumerate(row):
 
-        boxchar = None
+            cell_color = -1
 
-        if char.isalnum():
-            boxchar = 'O'
-        else:
-            for dir_code, dir_var in dir_vars[i, j].iteritems():
-                if dir_var in sol:
-                    assert boxchar is None
-                    boxchar = DIR_LOOKUP[dir_code]
-            assert boxchar is not None
+            for color in range(num_colors):
+                if color_var(i, j, color) in sol:
+                    assert cell_color == -1
+                    cell_color = color
 
-        if ANSI_LOOKUP.has_key(output):
-            output = '\033[30;{}m{}\033[0m'.format(
-                ANSI_LOOKUP[output], boxchar)
+            assert cell_color != -1
 
-        sys.stdout.write(output)
+            cell_dir_code = -1
 
-        if j+1 == size:
-            sys.stdout.write('\n')
+            if not char.isalnum():
+
+                for dir_code, dir_var in dir_vars[i, j].iteritems():
+                    if dir_var in sol:
+                        assert cell_dir_code == -1
+                        cell_dir_code = dir_code
+
+                assert cell_dir_code != -1
+
+            decoded_row.append((cell_color, cell_dir_code))
+
+        decoded.append(decoded_row)
+
+    return decoded
+
+######################################################################
+
+def get_run(decoded, visited, cur_i, cur_j):
+
+    prev_i, prev_j = -1, -1
+
+    size = len(decoded)
+
+    run = []
+    is_cycle = False
+
+    while True:
+        advanced = False
+        color, dir_code = decoded[cur_i][cur_j]
+        visited[cur_i][cur_j] = 1
+        run.append((cur_i, cur_j))
+
+        for dir_bit, n_i, n_j in valid_neighbors(size, cur_i, cur_j):
+
+            if (n_i, n_j) == (prev_i, prev_j):
+                continue
+
+            n_color, n_dir_code = decoded[n_i][n_j]
+
+            if ((dir_code >= 0 and (dir_code & dir_bit)) or
+                    (dir_code == -1 and n_dir_code >= 0 and
+                     n_dir_code & DIR_FLIP[dir_bit])):
+
+                assert color == n_color
+
+                if visited[n_i][n_j]:
+                    is_cycle = True
+                else:
+                    prev_i, prev_j = cur_i, cur_j
+                    cur_i, cur_j = n_i, n_j
+                    advanced = True
+                break
+
+        if not advanced:
+            break
+
+    return run, is_cycle
+
+######################################################################
+
+def detect_cycles(decoded, dir_vars):
+
+    size = len(decoded)
+    colors_seen = set()
+    visited = [[0]*size for _ in range(size)]
+
+    for i, j, (color, dir_code) in explode(decoded):
+        if dir_code == -1:
+            if color not in colors_seen:
+                assert not visited[i][j]
+                colors_seen.add(color)
+                run, is_cycle = get_run(decoded, visited, i, j)
+                assert not is_cycle
+
+    extra_clauses = []
+
+    for i, j in itertools.product(range(size), range(size)):
+        if not visited[i][j]:
+
+            run, is_cycle = get_run(decoded, visited, i, j)
+            assert is_cycle
+
+            clause = []
+
+            for r_i, r_j in run:
+                _, dir_code = decoded[r_i][r_j]
+                dir_var = dir_vars[r_i, r_j][dir_code]
+                clause.append(-dir_var)
+
+            extra_clauses.append(clause)
+
+    return extra_clauses
+
+######################################################################
+
+def show_solution(colors, decoded):
+
+    color_chars = [None]*len(colors)
+
+    for char, color in colors.iteritems():
+        color_chars[color] = char
+
+    ansi_reset = '\033[0m'
+
+    for decoded_row in decoded:
+        for (color, dir_code) in decoded_row:
+
+            assert color >= 0 and color < len(colors)
+
+            if dir_code == -1:
+                display_char = 'O'
+            else:
+                display_char = DIR_LOOKUP[dir_code]
+
+            color_char = color_chars[color]
+
+            if ANSI_LOOKUP.has_key(color_char):
+                ansi_code = '\033[30;{}m'.format(ANSI_LOOKUP[color_char])
+            else:
+                ansi_code = ansi_reset
+
+            sys.stdout.write(ansi_code + display_char)
+
+        sys.stdout.write(ansi_reset + '\n')
+
+######################################################################
+
+def solve(puzzle, colors, color_var, dir_vars, clauses):
+
+    decoded = None
+    repairs = 0
+
+    while True:
+
+        sol = pycosat.solve(clauses) # pylint: disable=E1101
+
+        if not isinstance(sol, list):
+            break
+
+        decoded = decode_solution(puzzle, colors, color_var, dir_vars, sol)
+
+        extra_clauses = detect_cycles(decoded, dir_vars)
+
+        if not extra_clauses:
+            break
+
+        clauses += extra_clauses
+        repairs += 1
+
+    return sol, decoded, repairs
 
 ######################################################################
 
 def pyflow_solver():
+
+    first = True
 
     for filename in sys.argv[1:]:
 
@@ -274,6 +423,13 @@ def pyflow_solver():
 
         size = len(puzzle)
         num_colors = len(colors)
+
+        if not first:
+            print
+            print '*'*70
+            print
+
+        first = False
 
         print 'read {}x{} puzzle with {} colors from {}'.format(
             size, size, num_colors, filename)
@@ -310,41 +466,31 @@ def pyflow_solver():
             len(clauses), num_vars)
 
         assemble_elapsed = (datetime.now() - start).total_seconds()
-        total_elapsed = assemble_elapsed
 
         print 'assembled CNF in {:.3f} seconds'.format(assemble_elapsed)
         print
 
         start = datetime.now()
-        num_solutions = 0
 
-        # for some reason pylint complains about pycosat members being undefined :(
-        for sol in pycosat.itersolve(clauses): # pylint: disable=E1101
+        sol, decoded, repairs = solve(puzzle, colors, color_var, dir_vars, clauses)
 
-            end = datetime.now()
-            solve_elapsed = (end - start).total_seconds()
-            total_elapsed += solve_elapsed
-            start = end
-            num_solutions += 1
+        solve_elapsed = (datetime.now() - start).total_seconds()
 
-            print 'solver completed in {:.3f} seconds'.format(solve_elapsed)
+        if decoded is None:
+            print 'solver returned {} after {:,} cycle '\
+                'repairs and {:.3f} seconds'.format(
+                    str(sol), repairs, solve_elapsed)
 
-            if isinstance(sol, list):
-                print
-                show_solution(puzzle, colors, color_var, dir_vars, sol)
-                print
-
-            if num_solutions > 1:
-                print 'oh, no - more than one solution for', filename
-                sys.exit(1)
-
-        if not num_solutions:
-            print 'no solutions found!'
+        else:
+            print 'obtained solution after {:,} cycle repairs '\
+                'and {:.3f} seconds:'.format(
+                    repairs, solve_elapsed)
             print
+            show_solution(colors, decoded)
 
+        print
         print 'all done after {:.3f} seconds total'.format(
-            total_elapsed)
-
+            assemble_elapsed + solve_elapsed)
 
 ######################################################################
 
