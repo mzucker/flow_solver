@@ -62,27 +62,30 @@ QUIET = False
 
 def allpairs(collection):
     '''Return all combinations of two items from a collection, useful for
-    making a large number of SAT variables mutually exclusive.
+making a large number of SAT variables mutually exclusive.
 
     '''
+
     return itertools.combinations(collection, 2)
 
 ######################################################################
 
 def no_two(satvars):
     '''Given a collection of SAT variables, generates clauses specifying
-    that no two of them can be true at the same time.
+that no two of them can be true at the same time.
 
     '''
+
     return ((-a, -b) for (a, b) in allpairs(satvars))
 
 ######################################################################
 
 def explode(puzzle):
     '''Iterator helper function to allow looping over 2D arrays without
-    nested 'for' loops.
+nested 'for' loops.
 
     '''
+
     for i, row in enumerate(puzzle):
         for j, char in enumerate(row):
             yield i, j, char
@@ -104,9 +107,8 @@ def all_neighbors(i, j):
 
 def valid_neighbors(size, i, j):
     '''Return all actual on-grid neighbors of a grid square at row i,
-    column j.
+column j.'''
 
-    '''
     return ((dir_bit, ni, nj) for (dir_bit, ni, nj)
             in all_neighbors(i, j)
             if valid_pos(size, ni, nj))
@@ -116,8 +118,8 @@ def valid_neighbors(size, i, j):
 def parse_puzzle(filename):
 
     '''Read in the given file and parse it into a square array of strings,
-    as well as a dictionary which maps input characters to color
-    indices.
+as well as a dictionary which maps input characters to color
+indices.
 
     '''
 
@@ -173,8 +175,8 @@ def parse_puzzle(filename):
 def make_color_clauses(puzzle, colors, color_var):
 
     '''Generate CNF clauses entailing the N*M color SAT variables, where N
-    is the number of cells and M is the number of colors. Each cell
-    encodes a single color in a one-hot fashion.
+is the number of cells and M is the number of colors. Each cell
+encodes a single color in a one-hot fashion.
 
     '''
 
@@ -256,8 +258,8 @@ def make_dir_vars(puzzle, start_var):
 def make_dir_clauses(puzzle, colors, color_var, dir_vars):
 
     '''Generate clauses involving the color and direction-type SAT
-    variables. Each free cell must be exactly one direction, and
-    directions imply color matching with neighbors.
+variables. Each free cell must be exactly one direction, and
+directions imply color matching with neighbors.
 
     '''
 
@@ -295,7 +297,13 @@ def make_dir_clauses(puzzle, colors, color_var, dir_vars):
 
 ######################################################################
 
-def assemble(puzzle, colors):
+def reduce_to_sat(puzzle, colors):
+
+    '''Reduces the given puzzle to a SAT problem specified in CNF. Returns
+a list of clauses where each clause is a list of single SAT variables,
+possibly negated.
+
+    '''
 
     size = len(puzzle)
     num_colors = len(colors)
@@ -304,6 +312,10 @@ def assemble(puzzle, colors):
     num_color_vars = num_colors * num_cells
 
     def color_var(i, j, color):
+        '''Return the index of the SAT variable for the given color in row i,
+ column j.
+
+        '''
         return (i*size + j)*num_colors + color + 1
 
     start = datetime.now()
@@ -339,6 +351,12 @@ def assemble(puzzle, colors):
 ######################################################################
 
 def decode_solution(puzzle, num_colors, color_var, dir_vars, sol):
+
+    '''Takes the solution set from SAT and decodes it by undoing the
+one-hot encoding in each cell for color and direction-type. Returns a
+2D array of (color, direction-type) pairs.
+
+    '''
 
     sol = set(sol)
 
@@ -379,7 +397,14 @@ def decode_solution(puzzle, num_colors, color_var, dir_vars, sol):
 
 ######################################################################
 
-def get_run(decoded, visited, cur_i, cur_j):
+def follow_path(decoded, visited, cur_i, cur_j):
+
+    '''Follow a path starting from an arbitrary row, column location on
+the grid until a non-path cell is detected, or a cycle is
+found. Returns a list of (row, column) pairs on the path, as well as a
+boolean flag indicating if a cycle was detected.
+
+    '''
 
     prev_i, prev_j = -1, -1
 
@@ -424,6 +449,12 @@ def get_run(decoded, visited, cur_i, cur_j):
 
 def detect_cycles(decoded, dir_vars):
 
+    '''Examine the decoded SAT solution to see if any cycles exist; if so,
+return the CNF clauses that need to be added to the problem in order
+to prevent them.
+
+    '''
+
     size = len(decoded)
     colors_seen = set()
     visited = [[0]*size for _ in range(size)]
@@ -433,7 +464,7 @@ def detect_cycles(decoded, dir_vars):
             if color not in colors_seen:
                 assert not visited[i][j]
                 colors_seen.add(color)
-                run, is_cycle = get_run(decoded, visited, i, j)
+                run, is_cycle = follow_path(decoded, visited, i, j)
                 assert not is_cycle
 
     extra_clauses = []
@@ -441,7 +472,7 @@ def detect_cycles(decoded, dir_vars):
     for i, j in itertools.product(range(size), range(size)):
         if not visited[i][j]:
 
-            run, is_cycle = get_run(decoded, visited, i, j)
+            run, is_cycle = follow_path(decoded, visited, i, j)
             assert is_cycle
 
             clause = []
@@ -458,6 +489,8 @@ def detect_cycles(decoded, dir_vars):
 ######################################################################
 
 def show_solution(colors, decoded):
+
+    '''Print the puzzle solution to the terminal.'''
 
     color_chars = [None]*len(colors)
 
@@ -489,7 +522,16 @@ def show_solution(colors, decoded):
 
 ######################################################################
 
-def solve(puzzle, colors, color_var, dir_vars, clauses):
+def solve_sat(puzzle, colors, color_var, dir_vars, clauses):
+
+    '''Solve the SAT now that it has been reduced to a list of clauses in
+CNF.  This is an iterative process: first we try to solve a SAT, then
+we detect cycles. If cycles are found, they are prevented from
+recurring, and the next iteration begins. Returns the SAT solution
+set, the decoded puzzle solution, and the number of cycle repairs
+needed.
+
+    '''
 
     start = datetime.now()
 
@@ -531,7 +573,9 @@ def solve(puzzle, colors, color_var, dir_vars, clauses):
 
 ######################################################################
 
-def pyflow_solver():
+def pyflow_solver_main():
+
+    '''Main loop if module run as script.'''
 
     first = True
 
@@ -545,12 +589,12 @@ def pyflow_solver():
         if colors is None:
             continue
 
-        color_var, dir_vars, clauses = assemble(puzzle, colors)
-        solve(puzzle, colors, color_var, dir_vars, clauses)
+        color_var, dir_vars, clauses = reduce_to_sat(puzzle, colors)
+        solve_sat(puzzle, colors, color_var, dir_vars, clauses)
 
         first = False
 
 ######################################################################
 
 if __name__ == '__main__':
-    pyflow_solver()
+    pyflow_solver_main()
