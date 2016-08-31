@@ -28,7 +28,7 @@ From the `build` directory, try:
 Using the Python version:
 =========================
 
-Make sure you have the `pycosat` module installed. If not, try:
+Make sure you have [pycosat](https://github.com/ContinuumIO/pycosat) installed. If not, try:
 
     pip install pycosat
     
