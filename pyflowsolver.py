@@ -13,6 +13,7 @@ import sys
 import operator
 import itertools
 from datetime import datetime
+from argparse import ArgumentParser
 import pycosat
 
 
@@ -164,9 +165,10 @@ indices.
             print 'color {} has start but no end!'.format(char)
             return None, None
 
-    print 'read {}x{} puzzle with {} colors from {}'.format(
-        size, size, len(colors), filename)
-    print
+    if not QUIET:
+        print 'read {}x{} puzzle with {} colors from {}'.format(
+            size, size, len(colors), filename)
+        print
 
     return puzzle, colors
 
@@ -332,21 +334,22 @@ possibly negated.
     num_vars = num_color_vars + num_dir_vars
     clauses = color_clauses + dir_clauses
 
-    assemble_elapsed = (datetime.now() - start).total_seconds()
+    reduce_time = (datetime.now() - start).total_seconds()
 
-    print 'generated {:,} clauses over {:,} color variables'.format(
-        len(color_clauses), num_color_vars, grouping=True)
+    if not QUIET:
+        print 'generated {:,} clauses over {:,} color variables'.format(
+            len(color_clauses), num_color_vars, grouping=True)
 
-    print 'generated {:,} dir clauses over {:,} dir variables'.format(
-        len(dir_clauses), num_dir_vars)
+        print 'generated {:,} dir clauses over {:,} dir variables'.format(
+            len(dir_clauses), num_dir_vars)
 
-    print 'total {:,} clauses over {:,} variables'.format(
-        len(clauses), num_vars)
+        print 'total {:,} clauses over {:,} variables'.format(
+            len(clauses), num_vars)
 
-    print 'assembled CNF in {:.3f} seconds'.format(assemble_elapsed)
-    print
+        print 'reduced to SAT in {:.3f} seconds'.format(reduce_time)
+        print
 
-    return color_var, dir_vars, clauses
+    return color_var, dir_vars, clauses, reduce_time
 
 ######################################################################
 
@@ -556,21 +559,23 @@ needed.
         clauses += extra_clauses
         repairs += 1
 
-    solve_elapsed = (datetime.now() - start).total_seconds()
+    solve_time = (datetime.now() - start).total_seconds()
 
-    if decoded is None:
-        print 'solver returned {} after {:,} cycle '\
-            'repairs and {:.3f} seconds'.format(
-                str(sol), repairs, solve_elapsed)
+    if not QUIET:
+        if decoded is None:
+            print 'solver returned {} after {:,} cycle '\
+                'repairs and {:.3f} seconds'.format(
+                    str(sol), repairs, solve_time)
 
-    else:
-        print 'obtained solution after {:,} cycle repairs '\
-            'and {:.3f} seconds:'.format(
-                repairs, solve_elapsed)
-        print
-        show_solution(colors, decoded)
+        else:
+            print 'obtained solution after {:,} cycle repairs '\
+                'and {:.3f} seconds:'.format(
+                    repairs, solve_time)
+            print
+            show_solution(colors, decoded)
+            print
 
-    return sol, decoded, repairs
+    return sol, decoded, repairs, solve_time
 
 ######################################################################
 
@@ -578,11 +583,26 @@ def pyflow_solver_main():
 
     '''Main loop if module run as script.'''
 
+    parser = ArgumentParser(
+        description='Solve Flow Free puzzles via reduction to SAT')
+
+    parser.add_argument('filenames', metavar='PUZZLE', nargs='+',
+                        help='puzzle file to load')
+
+    parser.add_argument('-q', dest='quiet', default=False,
+                        action='store_true',
+                        help='quiet mode (reduce output)')
+
+    args = parser.parse_args()
+
+    global QUIET
+    QUIET = args.quiet
+
     first = True
 
-    for filename in sys.argv[1:]:
+    for filename in args.filenames:
 
-        if not first:
+        if not QUIET and not first:
             print '\n'+('*'*70)+'\n'
 
         puzzle, colors = parse_puzzle(filename)
@@ -590,12 +610,31 @@ def pyflow_solver_main():
         if colors is None:
             continue
 
-        color_var, dir_vars, clauses = reduce_to_sat(puzzle, colors)
-        solve_sat(puzzle, colors, color_var, dir_vars, clauses)
+        color_var, dir_vars, clauses, reduce_time = reduce_to_sat(puzzle, colors)
+        sol, _, repairs, solve_time = solve_sat(puzzle, colors, color_var,
+                                              dir_vars, clauses)
+
+        total_time = reduce_time + solve_time
+
+        if not QUIET:
+            print 'finished in total of {:.3f} seconds'.format(
+                total_time)
+        else:
+            if isinstance(sol, list):
+                result_char = 's'
+            elif str(sol) == 'UNSAT':
+                result_char = 'u'
+            else:
+                result_char = 'f'
+                
+            print '{:{}s} {} {:3d} {:12,.3f} {:12,.3f} {:12,.3f}'.format(
+                filename, 30, result_char, repairs,
+                reduce_time, solve_time, total_time)
 
         first = False
 
 ######################################################################
 
 if __name__ == '__main__':
+
     pyflow_solver_main()
