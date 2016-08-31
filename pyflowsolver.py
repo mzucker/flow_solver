@@ -123,6 +123,36 @@ column j.'''
             if valid_pos(size, ni, nj))
 
 ######################################################################
+def repair_colors(puzzle, colors):
+
+    '''If the puzzle file used "color labels" (A,B,C...), instead
+    of color mnemonics (R,G,B...), convert the labels to mnemonics.
+    Note: If a puzzle is in mnemonic format, it will contain the
+    letter 'R' since Red is always the first color. Absence of an 'R'
+    is the test for a color-labeled puzzle.
+    '''
+    if 'R' in colors.keys():
+        return puzzle, colors
+
+    color_lookup = 'RBYGOCMmPAWgTbcp'
+    new_puzzle=[]
+
+    try:
+        for row in puzzle:
+            new_row = []
+            for char in row:
+                if char.isalnum():
+                    char = color_lookup[ord(char)-ord('A')]
+                new_row.append(char)
+            new_puzzle.append(''.join(new_row))
+        new_colors=dict((color_lookup[ord(x)-ord('A')], y)
+                        for (x,y) in colors.items())
+    except IndexError:
+        return puzzle, colors
+
+    return new_puzzle, new_colors
+
+######################################################################
 
 def parse_puzzle(options, file_or_str, filename='input'):
 
@@ -182,6 +212,7 @@ indices.
             size, size, len(colors), filename)
         print
 
+    puzzle, colors = repair_colors(puzzle, colors)
     return puzzle, colors
 
 ######################################################################
@@ -559,8 +590,11 @@ def show_solution(options, colors, decoded):
 
     color_chars = [None]*len(colors)
 
+    do_color = options.display_color
+
     for char, color in colors.iteritems():
         color_chars[color] = char
+        do_color = do_color and ANSI_LOOKUP.has_key(char)
 
     for decoded_row in decoded:
         for (color, dir_type) in decoded_row:
@@ -570,14 +604,14 @@ def show_solution(options, colors, decoded):
             color_char = color_chars[color]
 
             if dir_type == -1:
-                if options.display_color:
+                if do_color:
                     display_char = 'O'
                 else:
                     display_char = color_char
             else:
                 display_char = DIR_LOOKUP[dir_type]
 
-            if options.display_color:
+            if do_color:
 
                 if ANSI_LOOKUP.has_key(color_char):
                     ansi_code = ANSI_CELL_FORMAT.format(
