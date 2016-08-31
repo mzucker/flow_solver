@@ -113,7 +113,27 @@ def valid_neighbors(size, i, j):
 
 ######################################################################
 
-def make_colors(filename, puzzle):
+def parse_puzzle(filename):
+
+    '''Read in the given file and parse it into a square array of strings,
+    as well as a dictionary which maps input characters to color
+    indices.
+
+    '''
+
+    try:
+        with open(filename, 'r') as infile:
+            puzzle = infile.read().splitlines()
+    except IOError:
+        print '{}: error opening file'.format(filename)
+        return None, None
+
+    size = len(puzzle[0])
+    if len(puzzle) < size:
+        print '{}:{} unexpected EOF'.format(filename, size)
+        return None, None
+
+    puzzle = puzzle[:size]
 
     colors = dict()
     color_count = []
@@ -122,7 +142,7 @@ def make_colors(filename, puzzle):
     for i, row in enumerate(puzzle):
         if len(row) != size:
             print '{}:{} row size mismatch'.format(filename, i+1)
-            return None
+            return None, None
         for j, char in enumerate(row):
             if char.isalnum():
                 if colors.has_key(char):
@@ -130,7 +150,7 @@ def make_colors(filename, puzzle):
                     if color_count[color]:
                         print '{}:{}:{} too many {} already'.format(
                             filename, i+1, j, char)
-                        return None
+                        return None, None
                     color_count[color] = 1
                 else:
                     color = len(colors)
@@ -140,17 +160,23 @@ def make_colors(filename, puzzle):
     for char, color in colors.iteritems():
         if not color_count[color]:
             print 'color {} has start but no end!'.format(char)
-            return None
+            return None, None
 
     print 'read {}x{} puzzle with {} colors from {}'.format(
         size, size, len(colors), filename)
     print
 
-    return colors
+    return puzzle, colors
 
 ######################################################################
 
 def make_color_clauses(puzzle, colors, color_var):
+
+    '''Generate CNF clauses entailing the N*M color SAT variables, where N
+    is the number of cells and M is the number of colors. Each cell
+    encodes a single color in a one-hot fashion.
+
+    '''
 
     clauses = []
     num_colors = len(colors)
@@ -200,6 +226,8 @@ def make_color_clauses(puzzle, colors, color_var):
 
 def make_dir_vars(puzzle, start_var):
 
+    '''Creates the direction-type SAT variables for each cell.'''
+
     size = len(puzzle)
     dir_vars = dict()
     num_dir_vars = 0
@@ -226,6 +254,12 @@ def make_dir_vars(puzzle, start_var):
 ######################################################################
 
 def make_dir_clauses(puzzle, colors, color_var, dir_vars):
+
+    '''Generate clauses involving the color and direction-type SAT
+    variables. Each free cell must be exactly one direction, and
+    directions imply color matching with neighbors.
+
+    '''
 
     dir_clauses = []
     num_colors = len(colors)
@@ -258,6 +292,49 @@ def make_dir_clauses(puzzle, colors, color_var, dir_vars):
                         dir_clauses.append([-dir_var, -color_1, -color_2])
 
     return dir_clauses
+
+######################################################################
+
+def assemble(puzzle, colors):
+
+    size = len(puzzle)
+    num_colors = len(colors)
+
+    num_cells = size**2
+    num_color_vars = num_colors * num_cells
+
+    def color_var(i, j, color):
+        return (i*size + j)*num_colors + color + 1
+
+    start = datetime.now()
+
+    color_clauses = make_color_clauses(puzzle,
+                                       colors,
+                                       color_var)
+
+    dir_vars, num_dir_vars = make_dir_vars(puzzle, num_color_vars)
+
+    dir_clauses = make_dir_clauses(puzzle, colors,
+                                   color_var, dir_vars)
+
+    num_vars = num_color_vars + num_dir_vars
+    clauses = color_clauses + dir_clauses
+
+    assemble_elapsed = (datetime.now() - start).total_seconds()
+
+    print 'generated {:,} clauses over {:,} color variables'.format(
+        len(color_clauses), num_color_vars, grouping=True)
+
+    print 'generated {:,} dir clauses over {:,} dir variables'.format(
+        len(dir_clauses), num_dir_vars)
+
+    print 'total {:,} clauses over {:,} variables'.format(
+        len(clauses), num_vars)
+
+    print 'assembled CNF in {:.3f} seconds'.format(assemble_elapsed)
+    print
+
+    return color_var, dir_vars, clauses
 
 ######################################################################
 
@@ -412,50 +489,6 @@ def show_solution(colors, decoded):
 
 ######################################################################
 
-def assemble(puzzle, colors):
-
-    size = len(puzzle)
-    num_colors = len(colors)
-
-    num_cells = size**2
-    num_color_vars = num_colors * num_cells
-
-    def color_var(i, j, color):
-        return (i*size + j)*num_colors + color + 1
-
-    start = datetime.now()
-
-    color_clauses = make_color_clauses(puzzle,
-                                       colors,
-                                       color_var)
-
-    dir_vars, num_dir_vars = make_dir_vars(puzzle, num_color_vars)
-
-    dir_clauses = make_dir_clauses(puzzle, colors,
-                                   color_var, dir_vars)
-
-    num_vars = num_color_vars + num_dir_vars
-    clauses = color_clauses + dir_clauses
-
-    assemble_elapsed = (datetime.now() - start).total_seconds()
-
-    print 'generated {:,} clauses over {:,} color variables'.format(
-        len(color_clauses), num_color_vars, grouping=True)
-
-    print 'generated {:,} dir clauses over {:,} dir variables'.format(
-        len(dir_clauses), num_dir_vars)
-
-    print 'total {:,} clauses over {:,} variables'.format(
-        len(clauses), num_vars)
-
-    print 'assembled CNF in {:.3f} seconds'.format(assemble_elapsed)
-    print
-
-    return color_var, dir_vars, clauses
-
-
-######################################################################
-
 def solve(puzzle, colors, color_var, dir_vars, clauses):
 
     start = datetime.now()
@@ -504,16 +537,11 @@ def pyflow_solver():
 
     for filename in sys.argv[1:]:
 
-        with open(filename, 'r') as infile:
-            puzzle = infile.read().splitlines()
-
-        size = len(puzzle[0])
-        puzzle = puzzle[:size]
-
         if not first:
             print '\n'+('*'*70)+'\n'
 
-        colors = make_colors(filename, puzzle)
+        puzzle, colors = parse_puzzle(filename)
+
         if colors is None:
             continue
 
