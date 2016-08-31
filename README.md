@@ -1,9 +1,10 @@
 flow_solver
 ===========
 
-Fast automated solver for Flow Free in a single C/Python file. 
+Fast automated solver for Flow Free in a single C or Python file. 
 
-Full writeup of C version at <https://mzucker.github.io/2016/08/28/flow-solver.html>
+Full writeup of C version at <https://mzucker.github.io/2016/08/28/flow-solver.html>.
+
 Python writeup coming soon.
 
 Building the C version
