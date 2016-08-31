@@ -883,6 +883,26 @@ double game_make_move(const game_info_t* info,
 }
 
 //////////////////////////////////////////////////////////////////////
+// Helper function for below.
+
+int detect_format(FILE* fp) {
+
+  int max_letter = 'A';
+  int c;
+
+  while ((c = fgetc(fp)) != EOF) {
+    if (isalpha(c) && c > max_letter) {
+      max_letter = c;
+    }
+  }
+
+  rewind(fp);
+
+  return (max_letter - 'A') < MAX_COLORS;
+
+}
+
+//////////////////////////////////////////////////////////////////////
 // Read game board from text file
 
 int game_read(const char* filename,
@@ -895,6 +915,8 @@ int game_read(const char* filename,
     fprintf(stderr, "error opening %s\n", filename);
     return 0;
   }
+
+  int is_alternate_format = detect_format(fp);
 
   memset(info, 0, sizeof(game_info_t));
   memset(state, 0, sizeof(game_state_t));
@@ -924,6 +946,10 @@ int game_read(const char* filename,
       fprintf(stderr, "%s:%zu line too long\n", filename, y+1);
       fclose(fp);
       return 0;
+    }
+
+    if (l >= 2 && s[l-2] == '\r') { // DOS line endings
+      --l;
     }
 
     if (info->size == 0) {
@@ -971,8 +997,8 @@ int game_read(const char* filename,
 
           }
           
-          int id = get_color_id(c);
-          if (id < 0) {
+          int id = is_alternate_format ? (c - 'A') : get_color_id(c);
+          if (id < 0 || id >= MAX_COLORS) {
             fprintf(stderr, "%s:%zu: unrecognized color %c\n",
                     filename, y+1, c);
             fclose(fp);
