@@ -57,8 +57,6 @@ DIR_LOOKUP = {
     BR: '┌'
     }
 
-QUIET = False
-
 ######################################################################
 
 def allpairs(collection):
@@ -116,7 +114,7 @@ column j.'''
 
 ######################################################################
 
-def parse_puzzle(filename):
+def parse_puzzle(args, filename):
 
     '''Read in the given file and parse it into a square array of strings,
 as well as a dictionary which maps input characters to color
@@ -165,7 +163,7 @@ indices.
             print 'color {} has start but no end!'.format(char)
             return None, None
 
-    if not QUIET:
+    if not args.quiet:
         print 'read {}x{} puzzle with {} colors from {}'.format(
             size, size, len(colors), filename)
         print
@@ -299,7 +297,7 @@ directions imply color matching with neighbors.
 
 ######################################################################
 
-def reduce_to_sat(puzzle, colors):
+def reduce_to_sat(args, puzzle, colors):
 
     '''Reduces the given puzzle to a SAT problem specified in CNF. Returns
 a list of clauses where each clause is a list of single SAT variables,
@@ -336,7 +334,7 @@ possibly negated.
 
     reduce_time = (datetime.now() - start).total_seconds()
 
-    if not QUIET:
+    if not args.quiet:
         print 'generated {:,} clauses over {:,} color variables'.format(
             len(color_clauses), num_color_vars, grouping=True)
 
@@ -526,7 +524,7 @@ def show_solution(colors, decoded):
 
 ######################################################################
 
-def solve_sat(puzzle, colors, color_var, dir_vars, clauses):
+def solve_sat(args, puzzle, colors, color_var, dir_vars, clauses):
 
     '''Solve the SAT now that it has been reduced to a list of clauses in
 CNF.  This is an iterative process: first we try to solve a SAT, then
@@ -561,7 +559,7 @@ needed.
 
     solve_time = (datetime.now() - start).total_seconds()
 
-    if not QUIET:
+    if not args.quiet:
         if decoded is None:
             print 'solver returned {} after {:,} cycle '\
                 'repairs and {:.3f} seconds'.format(
@@ -595,31 +593,29 @@ def pyflow_solver_main():
 
     args = parser.parse_args()
 
-    global QUIET
-    QUIET = args.quiet
-
     first = True
 
     max_width = max(len(f) for f in args.filenames)
 
     for filename in args.filenames:
 
-        if not QUIET and not first:
+        if not args.quiet and not first:
             print '\n'+('*'*70)+'\n'
 
-        puzzle, colors = parse_puzzle(filename)
+        puzzle, colors = parse_puzzle(args, filename)
 
         if colors is None:
             continue
 
-        color_var, dir_vars, clauses, reduce_time = reduce_to_sat(puzzle, colors)
+        color_var, dir_vars, clauses, reduce_time = reduce_to_sat(args, puzzle,
+                                                                  colors)
 
-        sol, _, repairs, solve_time = solve_sat(puzzle, colors, color_var,
-                                                dir_vars, clauses)
+        sol, _, repairs, solve_time = solve_sat(args, puzzle, colors,
+                                                color_var, dir_vars, clauses)
 
         total_time = reduce_time + solve_time
 
-        if not QUIET:
+        if not args.quiet:
             print 'finished in total of {:.3f} seconds'.format(
                 total_time)
         else:
