@@ -1,12 +1,13 @@
 flow_solver
 ===========
 
-Fast automated solver for Flow Free in a single C file.
+Fast automated solver for Flow Free in a single C/Python file. 
 
-Full writeup at <https://mzucker.github.io/2016/08/28/flow-solver.html>
+Full writeup of C version at <https://mzucker.github.io/2016/08/28/flow-solver.html>
+Python writeup coming soon.
 
-Building
-========
+Building the C version
+======================
 
 No dependencies to install, just do this:
 
@@ -16,12 +17,23 @@ No dependencies to install, just do this:
     cmake .. -DCMAKE_BUILD_TYPE=Release
     make
 
-Using the software
-==================
+Using the C version:
+====================
 
 From the `build` directory, try:
 
     ./flow_solver ../puzzles/jumbo_14x14_01.txt
+    
+Using the Python version:
+=========================
+
+Make sure you have the `pycosat` module installed: if not, try
+
+    pip install pycosat
+    
+Then, from the project root directory, try:
+
+    ./pyflowsolver.py puzzles/jumbo_14x14_01.txt
 
 Puzzle file format
 ==================
