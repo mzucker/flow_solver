@@ -124,7 +124,7 @@ column j.'''
 
 ######################################################################
 
-def parse_puzzle(options, file_or_str):
+def parse_puzzle(options, file_or_str, filename='input'):
 
     '''Convert the given string or file object into a square array of
 strings. Also return a dictionary which maps input characters to color
@@ -768,7 +768,7 @@ def pyflow_solver_main():
         # open file
         try:
             with open(filename, 'r') as infile:
-                puzzle, colors = parse_puzzle(options, infile)
+                puzzle, colors = parse_puzzle(options, infile, filename)
         except IOError:
             print '{}: error opening file'.format(filename)
             continue
