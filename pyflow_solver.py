@@ -350,7 +350,7 @@ possibly negated.
 
 ######################################################################
 
-def decode_solution(puzzle, num_colors, color_var, dir_vars, sol):
+def decode_solution(puzzle, colors, color_var, dir_vars, sol):
 
     '''Takes the solution set from SAT and decodes it by undoing the
 one-hot encoding in each cell for color and direction-type. Returns a
@@ -359,6 +359,7 @@ one-hot encoding in each cell for color and direction-type. Returns a
     '''
 
     sol = set(sol)
+    num_colors = len(colors)
 
     decoded = []
 
@@ -545,7 +546,7 @@ needed.
         if not isinstance(sol, list):
             break
 
-        decoded = decode_solution(puzzle, len(colors), color_var, dir_vars, sol)
+        decoded = decode_solution(puzzle, colors, color_var, dir_vars, sol)
 
         extra_clauses = detect_cycles(decoded, dir_vars)
 
