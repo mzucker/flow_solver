@@ -571,7 +571,7 @@ def show_solution(args, colors, decoded):
             assert color >= 0 and color < len(colors)
 
             color_char = color_chars[color]
-            
+
             if dir_type == -1:
                 if args.display_color:
                     display_char = 'O'
@@ -594,7 +594,7 @@ def show_solution(args, colors, decoded):
 
         if args.display_color:
             sys.stdout.write(ANSI_RESET)
-            
+
         sys.stdout.write('\n')
 
 ######################################################################
@@ -652,12 +652,79 @@ needed.
 
 ######################################################################
 
+def print_summary(args, puzzle_count, all_repairs,
+                  reduce_times, solve_times, total_times, counts):
+
+    '''Print out stats for all solutions.'''
+
+    max_width = max(len(f) for f in args.filenames)
+
+    if puzzle_count > 1:
+
+        solution_types = all_repairs.keys()
+
+        if not args.quiet:
+
+            print '\n'+('*'*70)+'\n'
+
+            for result_char in solution_types:
+
+                print '{:d} {:s} searches took:\n'\
+                    '  {:,.3f} sec. to reduce\n'\
+                    '  {:,.3f} sec. to solve (with {:d} repairs)\n'\
+                    '  {:,.3f} sec. total\n'.format(
+                        counts[result_char],
+                        RESULT_STRINGS[result_char],
+                        reduce_times[result_char],
+                        solve_times[result_char],
+                        all_repairs[result_char],
+                        total_times[result_char])
+
+            if len(solution_types) > 1:
+
+                print 'overall, {:d} searches took:\n'\
+                    '  {:,.3f} sec. to reduce\n'\
+                    '  {:,.3f} sec. to solve (with {:d} repairs)\n'\
+                    '  {:,.3f} sec. total'.format(
+                        puzzle_count,
+                        sum(reduce_times.values()),
+                        sum(solve_times.values()),
+                        sum(all_repairs.values()),
+                        sum(total_times.values()))
+
+        else:
+
+            print
+
+            for result_char in solution_types:
+
+                print '{:s}{:3d} total {} {:12,.3f} '\
+                    '{:12,.3f} {:3d} {:12,.3f}'.format(
+                        ' '*(max_width-9), counts[result_char],
+                        result_char,
+                        reduce_times[result_char],
+                        solve_times[result_char],
+                        all_repairs[result_char],
+                        total_times[result_char])
+
+            if len(solution_types) > 1:
+
+                print '{:s}{:3d} overall {:12,.3f} '\
+                    '{:12,.3f} {:3d} {:12,.3f}'.format(
+                        ' '*(max_width-9), puzzle_count,
+                        sum(reduce_times.values()),
+                        sum(solve_times.values()),
+                        sum(all_repairs.values()),
+                        sum(total_times.values()))
+
+######################################################################
+
 def pyflow_solver_main():
 
     '''Main loop if module run as script.'''
 
     color_capable = (sys.platform != 'win32' and os.isatty(1))
-    
+
     parser = ArgumentParser(
         description='Solve Flow Free puzzles via reduction to SAT')
 
@@ -695,7 +762,7 @@ def pyflow_solver_main():
             continue
 
         puzzle_count += 1
-        
+
         color_var, dir_vars, clauses, reduce_time = reduce_to_sat(args, puzzle,
                                                                   colors)
 
@@ -723,73 +790,13 @@ def pyflow_solver_main():
         else:
 
             print '{:>{}s} {} {:12,.3f} {:12,.3f} {:3d} {:12,.3f}'.format(
-                filename, max_width, result_char, 
+                filename, max_width, result_char,
                 reduce_time, solve_time, repairs, total_time)
 
-
-    if puzzle_count > 1:
-
-        solution_types = all_repairs.keys()
-
-        if not args.quiet:
-
-            print '\n'+('*'*70)+'\n'
-
-        else:
-
-            print
-
-        for result_char in solution_types:
-
-            if not args.quiet:
-
-                print '{:d} {:s} searches took {:,.3f} sec. to reduce, '\
-                    '{:,.3f} sec. to solve (with {:d} repairs), '\
-                    '{:,.3f} sec. total'.format(
-                        counts[result_char],
-                        RESULT_STRINGS[result_char],
-                        reduce_times[result_char],
-                        solve_times[result_char],
-                        all_repairs[result_char],
-                        total_times[result_char])
-
-            else:
-
-                print '{:s}{:3d} total {} {:12,.3f} '\
-                    '{:12,.3f} {:3d} {:12,.3f}'.format(
-                        ' '*(max_width-9), counts[result_char],
-                        result_char,
-                        reduce_times[result_char],
-                        solve_times[result_char],
-                        all_repairs[result_char],
-                        total_times[result_char])
-
-        if len(solution_types) > 1:
-            print
-
-            if not args.quiet:
+    print_summary(args, puzzle_count, all_repairs,
+                  reduce_times, solve_times, total_times, counts)
 
 
-                print 'overall, {:d} searches took {:,.3f} sec. to reduce, '\
-                    '{:,.3f} sec. to solve (with {:d} repairs), '\
-                    '{:,.3f} sec. total'.format(
-                        puzzle_count, 
-                        sum(reduce_times.values()),
-                        sum(solve_times.values()),
-                        sum(all_repairs.values()),
-                        sum(total_times.values()))
-
-
-            else:
-                    
-                print '{:s}{:3d} overall {:12,.3f} '\
-                    '{:12,.3f} {:3d} {:12,.3f}'.format(
-                        ' '*(max_width-9), puzzle_count,
-                        sum(reduce_times.values()),
-                        sum(solve_times.values()),
-                        sum(all_repairs.values()),
-                        sum(total_times.values()))
-        
 ######################################################################
 
 if __name__ == '__main__':
