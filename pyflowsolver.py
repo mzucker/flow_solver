@@ -15,6 +15,7 @@ import operator
 import itertools
 from datetime import datetime
 from argparse import ArgumentParser
+from collections import defaultdict
 import pycosat
 
 
@@ -61,6 +62,10 @@ DIR_LOOKUP = {
     BL: '┐',
     BR: '┌'
     }
+
+RESULT_STRINGS = dict(s='successful',
+                      f='failed',
+                      u='unsolvable')
 
 ######################################################################
 
@@ -669,13 +674,19 @@ def pyflow_solver_main():
 
     args = parser.parse_args()
 
-    first = True
 
     max_width = max(len(f) for f in args.filenames)
 
+    puzzle_count = 0
+    all_repairs = defaultdict(int)
+    reduce_times = defaultdict(float)
+    solve_times = defaultdict(float)
+    total_times = defaultdict(float)
+    counts = defaultdict(int)
+
     for filename in args.filenames:
 
-        if not args.quiet and not first:
+        if not args.quiet and puzzle_count:
             print '\n'+('*'*70)+'\n'
 
         puzzle, colors = parse_puzzle(args, filename)
@@ -683,6 +694,8 @@ def pyflow_solver_main():
         if colors is None:
             continue
 
+        puzzle_count += 1
+        
         color_var, dir_vars, clauses, reduce_time = reduce_to_sat(args, puzzle,
                                                                   colors)
 
@@ -691,23 +704,92 @@ def pyflow_solver_main():
 
         total_time = reduce_time + solve_time
 
+        if isinstance(sol, list):
+            result_char = 's'
+        elif str(sol) == 'UNSAT':
+            result_char = 'u'
+        else:
+            result_char = 'f'
+
+        all_repairs[result_char] += repairs
+        reduce_times[result_char] += reduce_time
+        solve_times[result_char] += solve_time
+        total_times[result_char] += total_time
+        counts[result_char] += 1
+
         if not args.quiet:
             print 'finished in total of {:.3f} seconds'.format(
                 total_time)
         else:
-            if isinstance(sol, list):
-                result_char = 's'
-            elif str(sol) == 'UNSAT':
-                result_char = 'u'
+
+            print '{:>{}s} {} {:12,.3f} {:12,.3f} {:3d} {:12,.3f}'.format(
+                filename, max_width, result_char, 
+                reduce_time, solve_time, repairs, total_time)
+
+
+    if puzzle_count > 1:
+
+        solution_types = all_repairs.keys()
+
+        if not args.quiet:
+
+            print '\n'+('*'*70)+'\n'
+
+        else:
+
+            print
+
+        for result_char in solution_types:
+
+            if not args.quiet:
+
+                print '{:d} {:s} searches took {:,.3f} sec. to reduce, '\
+                    '{:,.3f} sec. to solve (with {:d} repairs), '\
+                    '{:,.3f} sec. total'.format(
+                        counts[result_char],
+                        RESULT_STRINGS[result_char],
+                        reduce_times[result_char],
+                        solve_times[result_char],
+                        all_repairs[result_char],
+                        total_times[result_char])
+
             else:
-                result_char = 'f'
 
-            print '{:>{}s} {} {:3d} {:12,.3f} {:12,.3f} {:12,.3f}'.format(
-                filename, max_width, result_char, repairs,
-                reduce_time, solve_time, total_time)
+                print '{:s}{:3d} total {} {:12,.3f} '\
+                    '{:12,.3f} {:3d} {:12,.3f}'.format(
+                        ' '*(max_width-9), counts[result_char],
+                        result_char,
+                        reduce_times[result_char],
+                        solve_times[result_char],
+                        all_repairs[result_char],
+                        total_times[result_char])
 
-        first = False
+        if len(solution_types) > 1:
+            print
 
+            if not args.quiet:
+
+
+                print 'overall, {:d} searches took {:,.3f} sec. to reduce, '\
+                    '{:,.3f} sec. to solve (with {:d} repairs), '\
+                    '{:,.3f} sec. total'.format(
+                        puzzle_count, 
+                        sum(reduce_times.values()),
+                        sum(solve_times.values()),
+                        sum(all_repairs.values()),
+                        sum(total_times.values()))
+
+
+            else:
+                    
+                print '{:s}{:3d} overall {:12,.3f} '\
+                    '{:12,.3f} {:3d} {:12,.3f}'.format(
+                        ' '*(max_width-9), puzzle_count,
+                        sum(reduce_times.values()),
+                        sum(solve_times.values()),
+                        sum(all_repairs.values()),
+                        sum(total_times.values()))
+        
 ######################################################################
 
 if __name__ == '__main__':
