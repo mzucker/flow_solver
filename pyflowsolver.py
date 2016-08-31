@@ -9,6 +9,7 @@ all cycles are eliminated.
 
 '''
 
+import os
 import sys
 import operator
 import itertools
@@ -34,7 +35,7 @@ TR = TOP | RIGHT
 BL = BOTTOM | LEFT
 BR = BOTTOM | RIGHT
 
-DIR_CODES = [LR, TB, TL, TR, BL, BR]
+DIR_TYPES = [LR, TB, TL, TR, BL, BR]
 
 DIR_FLIP = {
     LEFT: RIGHT,
@@ -47,6 +48,10 @@ ANSI_LOOKUP = dict(R=101, B=104, Y=103, G=42,
                    O=43, C=106, M=105, m=41,
                    P=45, A=100, W=107, g=102,
                    T=47, b=44, c=46, p=35)
+
+ANSI_RESET = '\033[0m'
+
+ANSI_CELL_FORMAT = '\033[30;{}m'
 
 DIR_LOOKUP = {
     LR: '─',
@@ -122,6 +127,7 @@ indices.
 
     '''
 
+    # open file
     try:
         with open(filename, 'r') as infile:
             puzzle = infile.read().splitlines()
@@ -129,23 +135,27 @@ indices.
         print '{}: error opening file'.format(filename)
         return None, None
 
+    # assume size based on length of first line
     size = len(puzzle[0])
+
+    # make sure enough lines
     if len(puzzle) < size:
-        print '{}:{} unexpected EOF'.format(filename, size)
+        print '{}:{} unexpected EOF'.format(filename, len(puzzle)+1)
         return None, None
 
+    # truncate extraneous lines
     puzzle = puzzle[:size]
 
+    # count colors and build lookup
     colors = dict()
     color_count = []
-    size = len(puzzle)
 
     for i, row in enumerate(puzzle):
         if len(row) != size:
             print '{}:{} row size mismatch'.format(filename, i+1)
             return None, None
         for j, char in enumerate(row):
-            if char.isalnum():
+            if char.isalnum(): # flow endpoint
                 if colors.has_key(char):
                     color = colors[char]
                     if color_count[color]:
@@ -158,11 +168,13 @@ indices.
                     colors[char] = color
                     color_count.append(0)
 
+    # check parity
     for char, color in colors.iteritems():
         if not color_count[color]:
             print 'color {} has start but no end!'.format(char)
             return None, None
 
+    # print info
     if not args.quiet:
         print 'read {}x{} puzzle with {} colors from {}'.format(
             size, size, len(colors), filename)
@@ -187,21 +199,20 @@ encodes a single color in a one-hot fashion.
     # for each cell
     for i, j, char in explode(puzzle):
 
-        # check if solved already
-        if char.isalnum():
+        if char.isalnum(): # flow endpoint
 
-            solved_color = colors[char]
+            endpoint_color = colors[char]
 
             # color in this cell is this one
-            clauses.append([color_var(i, j, solved_color)])
+            clauses.append([color_var(i, j, endpoint_color)])
 
             # color in this cell is not the other ones
             for other_color in range(num_colors):
-                if other_color != solved_color:
+                if other_color != endpoint_color:
                     clauses.append([-color_var(i, j, other_color)])
 
             # gather neighbors' variables for this color
-            neighbor_vars = [color_var(ni, nj, solved_color) for
+            neighbor_vars = [color_var(ni, nj, endpoint_color) for
                              _, ni, nj in valid_neighbors(size, i, j)]
 
             # one neighbor has this color
@@ -236,17 +247,22 @@ def make_dir_vars(puzzle, start_var):
 
     for i, j, char in explode(puzzle):
 
-        if char.isalnum():
+        if char.isalnum(): # flow endpoint, no dir needed
             continue
 
+        # collect bits for neighbors (TOP BOTTOM LEFT RIGHT)
         neighbor_bits = (dir_bit for (dir_bit, ni, nj)
                          in valid_neighbors(size, i, j))
 
+        # OR them all together
         cell_flags = reduce(operator.or_, neighbor_bits, 0)
 
+        # create a lookup for dir type vars in this cell
         dir_vars[i, j] = dict()
 
-        for code in DIR_CODES:
+        for code in DIR_TYPES:
+            # only add var if cell has correct flags (i.e. if cell has
+            # TOP, BOTTOM, RIGHT, don't add LR).
             if cell_flags & code == code:
                 num_dir_vars += 1
                 dir_vars[i, j][code] = start_var + num_dir_vars
@@ -267,30 +283,44 @@ directions imply color matching with neighbors.
     num_colors = len(colors)
     size = len(puzzle)
 
+    # for each cell
     for i, j, char in explode(puzzle):
 
-        if char.isalnum():
+        if char.isalnum(): # flow endpoint, no dir needed
             continue
 
         cell_dir_dict = dir_vars[(i, j)]
         cell_dir_vars = cell_dir_dict.values()
 
+        # at least one direction is set in this cell
         dir_clauses.append(cell_dir_vars)
 
-        for dir_a, dir_b in allpairs(cell_dir_vars):
-            dir_clauses.append([-dir_a, -dir_b])
+        # no two directions are set in this cell
+        dir_clauses.extend(no_two(cell_dir_vars))
 
-        for dir_code, dir_var in cell_dir_dict.iteritems():
+        # for each color
+        for color in range(num_colors):
 
+            # get color var for this cell
+            color_1 = color_var(i, j, color)
+
+            # for each neighbor
             for dir_bit, n_i, n_j in all_neighbors(i, j):
 
-                for color in range(num_colors):
-                    color_1 = color_var(i, j, color)
-                    color_2 = color_var(n_i, n_j, color)
-                    if dir_code & dir_bit:
+                # get color var for other cell
+                color_2 = color_var(n_i, n_j, color)
+
+                # for each direction variable in this scell
+                for dir_type, dir_var in cell_dir_dict.iteritems():
+
+                    # if neighbor is hit by this direction type
+                    if dir_type & dir_bit:
+                        # this direction type implies the colors are equal
                         dir_clauses.append([-dir_var, -color_1, color_2])
                         dir_clauses.append([-dir_var, color_1, -color_2])
                     elif valid_pos(size, n_i, n_j):
+                        # neighbor is not along this direction type,
+                        # so this direction type implies the colors are not equal
                         dir_clauses.append([-dir_var, -color_1, -color_2])
 
     return dir_clauses
@@ -364,13 +394,14 @@ one-hot encoding in each cell for color and direction-type. Returns a
 
     decoded = []
 
-    # fill each cell with color/dircode
     for i, row in enumerate(puzzle):
 
         decoded_row = []
 
         for j, char in enumerate(row):
 
+            # find which color variable for this cell is in the
+            # solution set
             cell_color = -1
 
             for color in range(num_colors):
@@ -380,18 +411,20 @@ one-hot encoding in each cell for color and direction-type. Returns a
 
             assert cell_color != -1
 
-            cell_dir_code = -1
+            cell_dir_type = -1
 
-            if not char.isalnum():
+            if not char.isalnum(): # not a flow endpoint
 
-                for dir_code, dir_var in dir_vars[i, j].iteritems():
+                # find which dir type variable for this cell is in the
+                # solution set
+                for dir_type, dir_var in dir_vars[i, j].iteritems():
                     if dir_var in sol:
-                        assert cell_dir_code == -1
-                        cell_dir_code = dir_code
+                        assert cell_dir_type == -1
+                        cell_dir_type = dir_type
 
-                assert cell_dir_code != -1
+                assert cell_dir_type != -1
 
-            decoded_row.append((cell_color, cell_dir_code))
+            decoded_row.append((cell_color, cell_dir_type))
 
         decoded.append(decoded_row)
 
@@ -399,7 +432,7 @@ one-hot encoding in each cell for color and direction-type. Returns a
 
 ######################################################################
 
-def follow_path(decoded, visited, cur_i, cur_j):
+def make_path(decoded, visited, cur_i, cur_j):
 
     '''Follow a path starting from an arbitrary row, column location on
 the grid until a non-path cell is detected, or a cycle is
@@ -408,40 +441,53 @@ boolean flag indicating if a cycle was detected.
 
     '''
 
-    prev_i, prev_j = -1, -1
-
     size = len(decoded)
 
     run = []
     is_cycle = False
+    prev_i, prev_j = -1, -1
 
     while True:
+
         advanced = False
-        color, dir_code = decoded[cur_i][cur_j]
+
+        # get current cell, set visited, add to path
+        color, dir_type = decoded[cur_i][cur_j]
         visited[cur_i][cur_j] = 1
         run.append((cur_i, cur_j))
 
+        # loop over valid neighbors
         for dir_bit, n_i, n_j in valid_neighbors(size, cur_i, cur_j):
 
+            # do not consider prev pos
             if (n_i, n_j) == (prev_i, prev_j):
                 continue
 
-            n_color, n_dir_code = decoded[n_i][n_j]
+            # get neighbor color & dir type
+            n_color, n_dir_type = decoded[n_i][n_j]
 
-            if ((dir_code >= 0 and (dir_code & dir_bit)) or
-                    (dir_code == -1 and n_dir_code >= 0 and
-                     n_dir_code & DIR_FLIP[dir_bit])):
+            # these are connected if one of the two dir type variables
+            # includes the (possibly flipped) direction bit.
+            if ((dir_type >= 0 and (dir_type & dir_bit)) or
+                    (dir_type == -1 and n_dir_type >= 0 and
+                     n_dir_type & DIR_FLIP[dir_bit])):
 
+                # if connected, they better be the same color
                 assert color == n_color
 
+                # detect cycle
                 if visited[n_i][n_j]:
                     is_cycle = True
                 else:
                     prev_i, prev_j = cur_i, cur_j
                     cur_i, cur_j = n_i, n_j
                     advanced = True
+
+                # either cycle detected or path advanced, so stop
+                # looking at neighbors
                 break
 
+        # if path not advanced, quit
         if not advanced:
             break
 
@@ -461,66 +507,90 @@ to prevent them.
     colors_seen = set()
     visited = [[0]*size for _ in range(size)]
 
-    for i, j, (color, dir_code) in explode(decoded):
-        if dir_code == -1:
-            if color not in colors_seen:
-                assert not visited[i][j]
-                colors_seen.add(color)
-                run, is_cycle = follow_path(decoded, visited, i, j)
-                assert not is_cycle
+    # for each cell
+    for i, j, (color, dir_type) in explode(decoded):
 
+        # if flow endpoint for color we haven't dealt with yet
+        if dir_type == -1 and color not in colors_seen:
+
+            # add it to set of colors dealt with
+            assert not visited[i][j]
+            colors_seen.add(color)
+
+            # mark the path as visited
+            run, is_cycle = make_path(decoded, visited, i, j)
+            assert not is_cycle
+
+    # see if there are any unvisited cells, if so they have cycles
     extra_clauses = []
 
     for i, j in itertools.product(range(size), range(size)):
+
         if not visited[i][j]:
 
-            run, is_cycle = follow_path(decoded, visited, i, j)
+            # get the path
+            run, is_cycle = make_path(decoded, visited, i, j)
             assert is_cycle
 
+            # generate a clause negating the conjunction of all
+            # direction types along the cycle path.
             clause = []
 
             for r_i, r_j in run:
-                _, dir_code = decoded[r_i][r_j]
-                dir_var = dir_vars[r_i, r_j][dir_code]
+                _, dir_type = decoded[r_i][r_j]
+                dir_var = dir_vars[r_i, r_j][dir_type]
                 clause.append(-dir_var)
 
             extra_clauses.append(clause)
 
+    # return whatever clauses we had to generate
     return extra_clauses
 
 ######################################################################
 
-def show_solution(colors, decoded):
+def show_solution(args, colors, decoded):
 
     '''Print the puzzle solution to the terminal.'''
+
+    # make an array to flip the key/value in the colors dict so we can
+    # index characters numerically:
 
     color_chars = [None]*len(colors)
 
     for char, color in colors.iteritems():
         color_chars[color] = char
 
-    ansi_reset = '\033[0m'
-
     for decoded_row in decoded:
-        for (color, dir_code) in decoded_row:
+        for (color, dir_type) in decoded_row:
 
             assert color >= 0 and color < len(colors)
 
-            if dir_code == -1:
-                display_char = 'O'
-            else:
-                display_char = DIR_LOOKUP[dir_code]
-
             color_char = color_chars[color]
-
-            if ANSI_LOOKUP.has_key(color_char):
-                ansi_code = '\033[30;{}m'.format(ANSI_LOOKUP[color_char])
+            
+            if dir_type == -1:
+                if args.display_color:
+                    display_char = 'O'
+                else:
+                    display_char = color_char
             else:
-                ansi_code = ansi_reset
+                display_char = DIR_LOOKUP[dir_type]
 
-            sys.stdout.write(ansi_code + display_char)
+            if args.display_color:
 
-        sys.stdout.write(ansi_reset + '\n')
+                if ANSI_LOOKUP.has_key(color_char):
+                    ansi_code = ANSI_CELL_FORMAT.format(
+                        ANSI_LOOKUP[color_char])
+                else:
+                    ansi_code = ANSI_RESET
+
+                sys.stdout.write(ansi_code)
+
+            sys.stdout.write(display_char)
+
+        if args.display_color:
+            sys.stdout.write(ANSI_RESET)
+            
+        sys.stdout.write('\n')
 
 ######################################################################
 
@@ -570,7 +640,7 @@ needed.
                 'and {:.3f} seconds:'.format(
                     repairs, solve_time)
             print
-            show_solution(colors, decoded)
+            show_solution(args, colors, decoded)
             print
 
     return sol, decoded, repairs, solve_time
@@ -581,6 +651,8 @@ def pyflow_solver_main():
 
     '''Main loop if module run as script.'''
 
+    color_capable = (sys.platform != 'win32' and os.isatty(1))
+    
     parser = ArgumentParser(
         description='Solve Flow Free puzzles via reduction to SAT')
 
@@ -590,6 +662,10 @@ def pyflow_solver_main():
     parser.add_argument('-q', dest='quiet', default=False,
                         action='store_true',
                         help='quiet mode (reduce output)')
+
+    parser.add_argument('-C', dest='display_color', default=color_capable,
+                        action='store_true',
+                        help='always display color')
 
     args = parser.parse_args()
 
