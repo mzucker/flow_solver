@@ -135,18 +135,24 @@ def repair_colors(puzzle, colors):
         return puzzle, colors
 
     color_lookup = 'RBYGOCMmPAWgTbcp'
-    new_puzzle=[]
+    new_puzzle = []
 
     try:
+
         for row in puzzle:
+
             new_row = []
+
             for char in row:
                 if char.isalnum():
                     char = color_lookup[ord(char)-ord('A')]
                 new_row.append(char)
+
             new_puzzle.append(''.join(new_row))
-        new_colors=dict((color_lookup[ord(x)-ord('A')], y)
-                        for (x,y) in colors.items())
+
+        new_colors = dict((color_lookup[ord(char)-ord('A')], index)
+                          for (char, index) in colors.items())
+
     except IndexError:
         return puzzle, colors
 
@@ -410,7 +416,7 @@ possibly negated.
         print 'reduced to SAT in {:.3f} seconds'.format(reduce_time)
         print
 
-    return color_var, dir_vars, clauses, reduce_time
+    return color_var, dir_vars, num_vars, clauses, reduce_time
 
 ######################################################################
 
@@ -652,6 +658,8 @@ needed.
         sol = pycosat.solve(clauses) # pylint: disable=E1101
 
         if not isinstance(sol, list):
+            decoded = None
+            all_decoded.append(decoded)
             break
 
         decoded = decode_solution(puzzle, colors, color_var, dir_vars, sol)
@@ -692,16 +700,21 @@ needed.
 
 ######################################################################
 
-def print_summary(options, puzzle_count, all_repairs,
-                  reduce_times, solve_times, total_times, counts):
+def print_summary(options, stats):
 
     '''Print out stats for all solutions.'''
 
     max_width = max(len(f) for f in options.filenames)
 
-    if puzzle_count > 1:
+    solution_types = stats.keys()
 
-        solution_types = all_repairs.keys()
+    all_stats = defaultdict(float)
+
+    for result_char in solution_types:
+        for k in stats[result_char]:
+            all_stats[k] += stats[result_char][k]
+
+    if all_stats['count'] > 1:
 
         if not options.quiet:
 
@@ -710,27 +723,32 @@ def print_summary(options, puzzle_count, all_repairs,
             for result_char in solution_types:
 
                 print '{:d} {:s} searches took:\n'\
-                    '  {:,.3f} sec. to reduce\n'\
+                    '  {:,.3f} sec. to reduce '\
+                    '(with {:,d} variables and {:,d} clauses)\n'\
                     '  {:,.3f} sec. to solve (with {:d} repairs)\n'\
                     '  {:,.3f} sec. total\n'.format(
-                        counts[result_char],
-                        RESULT_STRINGS[result_char],
-                        reduce_times[result_char],
-                        solve_times[result_char],
-                        all_repairs[result_char],
-                        total_times[result_char])
+                        stats[result_char]['count'], result_char,
+                        stats[result_char]['reduce_time'],
+                        stats[result_char]['num_vars'],
+                        stats[result_char]['num_clauses'],
+                        stats[result_char]['solve_time'],
+                        stats[result_char]['repairs'],
+                        stats[result_char]['total_time'])
 
             if len(solution_types) > 1:
 
                 print 'overall, {:d} searches took:\n'\
-                    '  {:,.3f} sec. to reduce\n'\
+                    '  {:,.3f} sec. to reduce '\
+                    '(with {:,d} variables and {:,d} clauses)\n'\
                     '  {:,.3f} sec. to solve (with {:d} repairs)\n'\
-                    '  {:,.3f} sec. total'.format(
-                        puzzle_count,
-                        sum(reduce_times.values()),
-                        sum(solve_times.values()),
-                        sum(all_repairs.values()),
-                        sum(total_times.values()))
+                    '  {:,.3f} sec. total\n'.format(
+                        int(all_stats['count']),
+                        all_stats['reduce_time'],
+                        int(all_stats['num_vars']),
+                        int(all_stats['num_clauses']),
+                        all_stats['solve_time'],
+                        int(all_stats['repairs']),
+                        all_stats['total_time'])
 
         else:
 
@@ -738,24 +756,25 @@ def print_summary(options, puzzle_count, all_repairs,
 
             for result_char in solution_types:
 
-                print '{:s}{:3d} total {} {:12,.3f} '\
-                    '{:12,.3f} {:3d} {:12,.3f}'.format(
-                        ' '*(max_width-9), counts[result_char],
+                print '{:s}{:3d} total {:s} {:9,d} {:9,d} {:12,.3f} '\
+                    '{:3d} {:12,.3f} {:12,.3f}'.format(
+                        ' '*(max_width-9), stats[result_char]['count'],
                         result_char,
-                        reduce_times[result_char],
-                        solve_times[result_char],
-                        all_repairs[result_char],
-                        total_times[result_char])
+                        stats[result_char]['num_vars'],
+                        stats[result_char]['num_clauses'],
+                        stats[result_char]['reduce_time'],
+                        stats[result_char]['repairs'],
+                        stats[result_char]['solve_time'],
+                        stats[result_char]['total_time'])
 
             if len(solution_types) > 1:
 
-                print '{:s}{:3d} overall {:12,.3f} '\
-                    '{:12,.3f} {:3d} {:12,.3f}'.format(
-                        ' '*(max_width-9), puzzle_count,
-                        sum(reduce_times.values()),
-                        sum(solve_times.values()),
-                        sum(all_repairs.values()),
-                        sum(total_times.values()))
+                print '{:s}{:3d} overall {:9,d} {:9,d} {:12,.3f} '\
+                    '{:3d} {:12,.3f} {:12,.3f}'.format(
+                        ' '*(max_width-9), int(all_stats['count']),
+                        int(all_stats['num_vars']), int(all_stats['num_clauses']),
+                        all_stats['reduce_time'], int(all_stats['repairs']),
+                        all_stats['solve_time'], all_stats['total_time'])
 
 ######################################################################
 
@@ -788,11 +807,8 @@ def pyflow_solver_main():
     max_width = max(len(f) for f in options.filenames)
 
     puzzle_count = 0
-    all_repairs = defaultdict(int)
-    reduce_times = defaultdict(float)
-    solve_times = defaultdict(float)
-    total_times = defaultdict(float)
-    counts = defaultdict(int)
+
+    stats = dict()
 
     for filename in options.filenames:
 
@@ -812,8 +828,8 @@ def pyflow_solver_main():
 
         puzzle_count += 1
 
-        color_var, dir_vars, clauses, reduce_time = reduce_to_sat(options, puzzle,
-                                                                  colors)
+        color_var, dir_vars, num_vars, clauses, reduce_time = \
+            reduce_to_sat(options, puzzle, colors)
 
         sol, _, repairs, solve_time = solve_sat(options, puzzle, colors,
                                                 color_var, dir_vars, clauses)
@@ -827,23 +843,33 @@ def pyflow_solver_main():
         else:
             result_char = 'f'
 
-        all_repairs[result_char] += repairs
-        reduce_times[result_char] += reduce_time
-        solve_times[result_char] += solve_time
-        total_times[result_char] += total_time
-        counts[result_char] += 1
+        cur_stats = dict(repairs=repairs,
+                         reduce_time=reduce_time,
+                         solve_time=solve_time,
+                         total_time=total_time,
+                         num_vars=num_vars,
+                         num_clauses=len(clauses),
+                         count=1)
+
+        if not stats.has_key(result_char):
+            stats[result_char] = cur_stats
+        else:
+            for key in cur_stats.keys():
+                stats[result_char][key] += cur_stats[key]
 
         if not options.quiet:
             print 'finished in total of {:.3f} seconds'.format(
                 total_time)
         else:
 
-            print '{:>{}s} {} {:12,.3f} {:12,.3f} {:3d} {:12,.3f}'.format(
-                filename, max_width, result_char,
-                reduce_time, solve_time, repairs, total_time)
+            print '{:>{}s} {} {:9,d} {:9,d} {:12,.3f} '\
+                '{:3d} {:12,.3f} {:12,.3f}'.format(
+                    filename, max_width, result_char,
+                    num_vars, len(clauses), reduce_time,
+                    repairs, solve_time, total_time)
 
-    print_summary(options, puzzle_count, all_repairs,
-                  reduce_times, solve_times, total_times, counts)
+
+    print_summary(options, stats)
 
 
 ######################################################################
