@@ -5,7 +5,7 @@ Fast automated solver for Flow Free in a single C or Python file.
 
 Full writeup of C version at <https://mzucker.github.io/2016/08/28/flow-solver.html>.
 
-Python writeup at <https://mzucker.github.io/2016/09/01/eating-sat-flavored-crow.html>.
+Python writeup at <https://mzucker.github.io/2016/09/02/eating-sat-flavored-crow.html>.
 
 Building the C version
 ======================
